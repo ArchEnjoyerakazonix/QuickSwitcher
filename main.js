@@ -149,7 +149,6 @@ ipcMain.handle('delete-wallpaper', async (event, { filepath }) => {
     if (!allowed) return { success: false, error: 'path outside wallpaper dirs' };
     try {
         fs.unlinkSync(filepath);
-        // Also delete thumb
         const thumbPath = getThumbPath(filepath);
         if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
         return { success: true };
