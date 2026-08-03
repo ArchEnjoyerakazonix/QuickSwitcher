@@ -1,11 +1,25 @@
 {
   "name": "quickswitcher",
   "version": "1.0.0",
-  "description": "Minimal wallpaper quickswitcher for Arch Linux & Hyprland",
+  "description": "Minimal GPU-accelerated wallpaper quickswitcher for Arch Linux & Hyprland",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArchEnjoyerakazonix/QuickSwitcher.git"
+  },
+  "keywords": [
+    "hyprland",
+    "arch-linux",
+    "wallpaper-picker",
+    "electron",
+    "quickswitcher",
+    "linux-desktop"
+  ],
+  "author": "ArchEnjoyerakazonix",
+  "license": "MIT",
   "devDependencies": {
     "electron": "^34.0.0"
   }

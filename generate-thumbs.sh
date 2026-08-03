@@ -28,7 +28,7 @@ for dir in "${DIRS[@]}"; do
                     -q:v 4 "$thumb" 2>/dev/null && count=$((count+1))
                 ;;
             jpg|jpeg|png|webp)
-                convert "$f" -thumbnail "160x260^" -gravity center \
+                magick "$f" -thumbnail "160x260^" -gravity center \
                     -extent 160x260 -quality 80 "$thumb" 2>/dev/null && count=$((count+1))
                 ;;
         esac
