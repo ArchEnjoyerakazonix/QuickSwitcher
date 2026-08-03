@@ -236,7 +236,7 @@ html, body {
 
 /* Hover overlay hint */
 .slice-card::after {
-    content: 'ПРИМЕНИТЬ';
+    content: 'APPLY';
     position: absolute;
     inset: 0;
     background: rgba(137,180,250,0.12);

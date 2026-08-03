@@ -140,7 +140,7 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
         }
     }
 
-    execFile('notify-send', ['QuickSwitcher', `Обои применены: ${path.basename(filepath)}`]);
+    execFile('notify-send', ['QuickSwitcher', `Wallpaper applied: ${path.basename(filepath)}`]);
     return true;
 });
 

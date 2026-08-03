@@ -38,15 +38,15 @@ function scrollTrack(delta) {
 
 async function loadWallpapers() {
     const track = document.getElementById('slices-track');
-    track.innerHTML = '<div class="loading-msg">⚡ Загрузка обоев...</div>';
+    track.innerHTML = '<div class="loading-msg">⚡ Loading wallpapers...</div>';
 
     const wallpapers = await ipcRenderer.invoke('get-wallpapers');
 
-    document.getElementById('wall-count').textContent = `${wallpapers.length} обоев`;
+    document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
     track.innerHTML = '';
 
     if (wallpapers.length === 0) {
-        track.innerHTML = '<div class="loading-msg">Обои не найдены...</div>';
+        track.innerHTML = '<div class="loading-msg">No wallpapers found...</div>';
         return;
     }
 
@@ -104,7 +104,7 @@ function showDeleteDialog(wall, card) {
 
     const msg = document.createElement('div');
     msg.className = 'delete-msg';
-    msg.textContent = 'Удалить обои?';
+    msg.textContent = 'Delete wallpaper?';
 
     const name = document.createElement('div');
     name.className = 'delete-name';
@@ -115,12 +115,12 @@ function showDeleteDialog(wall, card) {
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn-cancel';
-    cancelBtn.textContent = 'Отмена';
+    cancelBtn.textContent = 'Cancel';
     cancelBtn.addEventListener('click', () => overlay.remove());
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-delete';
-    deleteBtn.textContent = 'Удалить';
+    deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', async () => {
         const res = await ipcRenderer.invoke('delete-wallpaper', { filepath: wall.path });
         if (res.success) {
