@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickSwitcher</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="window-container">
+
+        <!-- CENTER: Wallpaper scroll track (full width) -->
+        <div class="center-panel">
+            <button class="nav-btn" id="nav-left">‹</button>
+            <div class="slices-viewport" id="slices-wrapper">
+                <div class="slices-track" id="slices-track">
+                    <!-- Cards injected by JS -->
+                </div>
+            </div>
+            <button class="nav-btn" id="nav-right">›</button>
+        </div>
+
+        <!-- RIGHT: Close button -->
+        <div class="right-panel">
+            <div class="wall-count" id="wall-count">— обоев</div>
+            <button class="close-btn" id="close-btn">✕</button>
+        </div>
+
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html>
