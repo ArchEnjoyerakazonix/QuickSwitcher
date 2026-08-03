@@ -114,11 +114,32 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
     try {
         const out = execSync('hyprctl activeworkspace -j', { timeout: 2000 }).toString();
         ws = JSON.parse(out).id ?? 1;
-    } catch { /* use default ws=1 */ }
+    } catch { /* default ws=1 */ }
 
-    for (const mon of monitors) {
-        execFile('bash', [SET_WALL_SCRIPT, String(ws), mon, filepath]);
+    if (fs.existsSync(SET_WALL_SCRIPT)) {
+        for (const mon of monitors) {
+            execFile('bash', [SET_WALL_SCRIPT, String(ws), mon, filepath]);
+        }
+    } else {
+        const ext = path.extname(filepath).toLowerCase();
+        const isVideo = ['.mp4', '.webm'].includes(ext);
+
+        if (isVideo) {
+            for (const mon of monitors) {
+                execFile('mpvpaper', ['-o', 'no-audio loop', mon, filepath]);
+            }
+        } else {
+            try {
+                execSync('swww query', { timeout: 1000 });
+                execFile('swww', ['img', filepath]);
+            } catch {
+                for (const mon of monitors) {
+                    execFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`]);
+                }
+            }
+        }
     }
+
     execFile('notify-send', ['QuickSwitcher', `Обои применены: ${path.basename(filepath)}`]);
     return true;
 });
