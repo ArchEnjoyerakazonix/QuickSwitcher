@@ -62,6 +62,21 @@ function createWindow() {
     win.loadFile('index.html');
 }
 
+function ensureThumbnail(fullPath, thumbPath, isVideo) {
+    if (fs.existsSync(thumbPath)) return thumbPath;
+    if (!isVideo) return fullPath;
+    try {
+        execSync(`ffmpeg -y -ss 00:00:02 -i "${fullPath}" -vframes 1 -q:v 2 "${thumbPath}" 2>/dev/null`, { timeout: 3000 });
+        if (fs.existsSync(thumbPath)) return thumbPath;
+    } catch (e) {
+        try {
+            execSync(`ffmpeg -y -i "${fullPath}" -vframes 1 -q:v 2 "${thumbPath}" 2>/dev/null`, { timeout: 3000 });
+            if (fs.existsSync(thumbPath)) return thumbPath;
+        } catch (err) {}
+    }
+    return fullPath;
+}
+
 ipcMain.handle('get-wallpapers', async () => {
     let files = [];
     for (const dir of WALL_DIRS) {
@@ -71,14 +86,14 @@ ipcMain.handle('get-wallpapers', async () => {
                 for (const file of list) {
                     const fullPath = path.join(dir, file);
                     const ext = path.extname(file).toLowerCase();
-                    if (['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+                    if (['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
                         try {
                             const stat = fs.statSync(fullPath);
                             if (stat.isFile()) {
                                 const thumbPath = getThumbPath(fullPath);
                                 const isVideo = ['.mp4', '.webm'].includes(ext);
 
-                                const thumb = fs.existsSync(thumbPath) ? thumbPath : fullPath;
+                                const thumb = ensureThumbnail(fullPath, thumbPath, isVideo);
 
                                 files.push({
                                     name: file,
