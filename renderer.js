@@ -7,18 +7,42 @@ const WHEEL_MULTIPLIER = 3;    // wheel scroll speed multiplier
 const APPLY_CLOSE_DELAY = 300; // ms before closing after applying wallpaper
 const CARD_FADE_DURATION = 220; // ms for card delete animation
 
+let allWallpapers = [];
+
 document.addEventListener('DOMContentLoaded', async () => {
     setupControls();
     await loadWallpapers();
 });
 
 function setupControls() {
+    const searchInput = document.getElementById('search-input');
     document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('close-app'));
+    
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') ipcRenderer.send('close-app');
+        if (document.activeElement === searchInput) {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                return;
+            }
+        }
         if (e.key === 'ArrowRight') scrollTrack(SCROLL_STEP);
         if (e.key === 'ArrowLeft') scrollTrack(-SCROLL_STEP);
     });
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            if (!query) {
+                renderFilteredWallpapers(allWallpapers);
+                return;
+            }
+            const filtered = allWallpapers.filter(w => {
+                const name = path.basename(w.path).toLowerCase();
+                return name.includes(query);
+            });
+            renderFilteredWallpapers(filtered);
+        });
+    }
 
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
@@ -40,8 +64,12 @@ async function loadWallpapers() {
     const track = document.getElementById('slices-track');
     track.innerHTML = '<div class="loading-msg">⚡ Loading wallpapers...</div>';
 
-    const wallpapers = await ipcRenderer.invoke('get-wallpapers');
+    allWallpapers = await ipcRenderer.invoke('get-wallpapers');
+    renderFilteredWallpapers(allWallpapers);
+}
 
+function renderFilteredWallpapers(wallpapers) {
+    const track = document.getElementById('slices-track');
     document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
     track.innerHTML = '';
 
@@ -53,6 +81,7 @@ async function loadWallpapers() {
     const frag = document.createDocumentFragment();
     wallpapers.forEach(wall => frag.appendChild(createCard(wall)));
     track.appendChild(frag);
+    track.scrollLeft = 0;
 }
 
 function createCard(wall) {
