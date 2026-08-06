@@ -44,7 +44,7 @@ sudo pacman -S electron ffmpeg imagemagick hyprland
 ```bash
 git clone https://github.com/ArchEnjoyerakazonix/QuickSwitcher.git ~/.config/quickswitcher
 cd ~/.config/quickswitcher
-npm install
+npm ci
 ```
 
 ### 3. Hyprland Integration
