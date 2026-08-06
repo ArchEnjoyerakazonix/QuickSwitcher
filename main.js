@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFile, execSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const os = require('os');
 
@@ -30,6 +30,32 @@ function getThumbPath(originalPath) {
     return path.join(THUMB_DIR, `${hash}.jpg`);
 }
 
+function resolveAllowedWallpaper(filepath) {
+    if (typeof filepath !== 'string' || !filepath) return null;
+    let resolved;
+    try {
+        resolved = fs.realpathSync(filepath);
+    } catch {
+        return null;
+    }
+    const allowed = WALL_DIRS.some(dir => {
+        if (!fs.existsSync(dir)) return false;
+        try {
+            const root = fs.realpathSync(dir);
+            const relative = path.relative(root, resolved);
+            return (
+                relative !== '' &&
+                relative !== '..' &&
+                !relative.startsWith(`..${path.sep}`) &&
+                !path.isAbsolute(relative)
+            );
+        } catch {
+            return false;
+        }
+    });
+    return allowed ? resolved : null;
+}
+
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width: sysW, height: sysH } = primaryDisplay.bounds;
@@ -52,9 +78,11 @@ function createWindow() {
         icon,
         title: 'QuickSwitcher',
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            webSecurity: false,
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
             backgroundThrottling: false,
         }
     });
@@ -66,15 +94,23 @@ function ensureThumbnail(fullPath, thumbPath, isVideo) {
     if (fs.existsSync(thumbPath)) return thumbPath;
     if (!isVideo) return fullPath;
     try {
-        execSync(`ffmpeg -y -ss 00:00:02 -i "${fullPath}" -vframes 1 -q:v 2 "${thumbPath}" 2>/dev/null`, { timeout: 3000 });
+        execFileSync('ffmpeg', ['-y', '-ss', '00:00:02', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
         if (fs.existsSync(thumbPath)) return thumbPath;
     } catch (e) {
         try {
-            execSync(`ffmpeg -y -i "${fullPath}" -vframes 1 -q:v 2 "${thumbPath}" 2>/dev/null`, { timeout: 3000 });
+            execFileSync('ffmpeg', ['-y', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
             if (fs.existsSync(thumbPath)) return thumbPath;
         } catch (err) {}
     }
     return fullPath;
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 ipcMain.handle('get-wallpapers', async () => {
@@ -85,22 +121,27 @@ ipcMain.handle('get-wallpapers', async () => {
                 const list = fs.readdirSync(dir);
                 for (const file of list) {
                     const fullPath = path.join(dir, file);
-                    const ext = path.extname(file).toLowerCase();
+                    const safePath = resolveAllowedWallpaper(fullPath);
+                    if (!safePath) continue;
+
+                    const ext = path.extname(safePath).toLowerCase();
                     if (['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
                         try {
-                            const stat = fs.statSync(fullPath);
+                            const stat = fs.statSync(safePath);
                             if (stat.isFile()) {
-                                const thumbPath = getThumbPath(fullPath);
                                 const isVideo = ['.mp4', '.webm'].includes(ext);
-
-                                const thumb = ensureThumbnail(fullPath, thumbPath, isVideo);
+                                const thumbPath = getThumbPath(safePath);
+                                const thumb = ensureThumbnail(safePath, thumbPath, isVideo);
 
                                 files.push({
                                     name: file,
-                                    path: fullPath,
+                                    path: safePath,
                                     thumb,
                                     type: isVideo ? 'VIDEO' : 'IMAGE',
-                                    ext: ext.replace('.', '').toUpperCase()
+                                    ext: ext.replace('.', '').toUpperCase(),
+                                    size: stat.size,
+                                    sizeFormatted: formatBytes(stat.size),
+                                    mtime: stat.mtimeMs
                                 });
                             }
                         } catch (e) {}
@@ -114,12 +155,14 @@ ipcMain.handle('get-wallpapers', async () => {
     return Array.from(uniqueMap.values());
 });
 
-ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
-    if (!filepath || typeof filepath !== 'string') return false;
+ipcMain.handle('apply-wallpaper', async (_event, { filepath }) => {
+    const safePath = resolveAllowedWallpaper(filepath);
+    if (!safePath) return false;
+    filepath = safePath;
 
     let monitors;
     try {
-        const out = execSync('hyprctl monitors -j', { timeout: 2000 }).toString();
+        const out = execFileSync('hyprctl', ['monitors', '-j'], { timeout: 2000 }).toString();
         monitors = JSON.parse(out).map(m => m.name);
     } catch {
         monitors = ['DP-2'];
@@ -127,7 +170,7 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
 
     let ws = 1;
     try {
-        const out = execSync('hyprctl activeworkspace -j', { timeout: 2000 }).toString();
+        const out = execFileSync('hyprctl', ['activeworkspace', '-j'], { timeout: 2000 }).toString();
         ws = JSON.parse(out).id ?? 1;
     } catch { /* default ws=1 */ }
 
@@ -145,7 +188,7 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
             }
         } else {
             try {
-                execSync('swww query', { timeout: 1000 });
+                execFileSync('swww', ['query'], { timeout: 1000 });
                 execFile('swww', ['img', filepath]);
             } catch {
                 for (const mon of monitors) {
@@ -159,16 +202,20 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
     return true;
 });
 
-ipcMain.handle('delete-wallpaper', async (event, { filepath }) => {
-    const allowed = WALL_DIRS.some(d => filepath.startsWith(d + '/'));
-    if (!allowed) return { success: false, error: 'path outside wallpaper dirs' };
+ipcMain.handle('delete-wallpaper', async (_event, { filepath }) => {
+    const safePath = resolveAllowedWallpaper(filepath);
+    if (!safePath) {
+        return { success: false, error: 'Invalid wallpaper path' };
+    }
     try {
-        fs.unlinkSync(filepath);
-        const thumbPath = getThumbPath(filepath);
-        if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+        fs.unlinkSync(safePath);
+        const thumbPath = getThumbPath(safePath);
+        if (fs.existsSync(thumbPath)) {
+            fs.unlinkSync(thumbPath);
+        }
         return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
+    } catch {
+        return { success: false, error: 'Wallpaper deletion failed' };
     }
 });
 

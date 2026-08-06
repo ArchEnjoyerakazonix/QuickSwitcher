@@ -1,6 +1,3 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
-
 // UI constants
 const SCROLL_STEP = 500;       // px per arrow-key/button press
 const WHEEL_MULTIPLIER = 3;    // wheel scroll speed multiplier
@@ -8,6 +5,11 @@ const APPLY_CLOSE_DELAY = 300; // ms before closing after applying wallpaper
 const CARD_FADE_DURATION = 220; // ms for card delete animation
 
 let allWallpapers = [];
+let currentSort = 'name-asc';
+
+function getBasename(filePath) {
+    return filePath ? filePath.split('/').pop() : '';
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     setupControls();
@@ -16,10 +18,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function setupControls() {
     const searchInput = document.getElementById('search-input');
-    document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('close-app'));
+    const sortBtn = document.getElementById('sort-btn');
+    const sortDropdown = document.getElementById('sort-dropdown');
+
+    document.getElementById('close-btn').addEventListener('click', () => window.wallpaperAPI.close());
     
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') ipcRenderer.send('close-app');
+        if (e.key === 'Escape') window.wallpaperAPI.close();
         if (document.activeElement === searchInput) {
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
                 return;
@@ -30,17 +35,31 @@ function setupControls() {
     });
 
     if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.trim().toLowerCase();
-            if (!query) {
-                renderFilteredWallpapers(allWallpapers);
-                return;
+        searchInput.addEventListener('input', () => {
+            filterAndRender();
+        });
+    }
+
+    if (sortBtn && sortDropdown) {
+        sortBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sortDropdown.classList.toggle('hidden');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!sortDropdown.contains(e.target) && e.target !== sortBtn) {
+                sortDropdown.classList.add('hidden');
             }
-            const filtered = allWallpapers.filter(w => {
-                const name = path.basename(w.path).toLowerCase();
-                return name.includes(query);
+        });
+
+        document.querySelectorAll('.sort-option').forEach(opt => {
+            opt.addEventListener('click', () => {
+                document.querySelectorAll('.sort-option').forEach(el => el.classList.remove('active'));
+                opt.classList.add('active');
+                currentSort = opt.getAttribute('data-sort');
+                sortDropdown.classList.add('hidden');
+                filterAndRender();
             });
-            renderFilteredWallpapers(filtered);
         });
     }
 
@@ -64,8 +83,52 @@ async function loadWallpapers() {
     const track = document.getElementById('slices-track');
     track.innerHTML = '<div class="loading-msg">⚡ Loading wallpapers...</div>';
 
-    allWallpapers = await ipcRenderer.invoke('get-wallpapers');
-    renderFilteredWallpapers(allWallpapers);
+    allWallpapers = await window.wallpaperAPI.list();
+    filterAndRender();
+}
+
+function filterAndRender() {
+    const searchInput = document.getElementById('search-input');
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    let list = allWallpapers;
+    if (query) {
+        list = list.filter(w => {
+            const name = getBasename(w.path).toLowerCase();
+            return name.includes(query);
+        });
+    }
+
+    const sorted = sortWallpapers(list);
+    renderFilteredWallpapers(sorted);
+}
+
+function sortWallpapers(list) {
+    const arr = [...list];
+    switch (currentSort) {
+        case 'name-asc':
+            return arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        case 'size-desc':
+            return arr.sort((a, b) => (b.size || 0) - (a.size || 0));
+        case 'size-asc':
+            return arr.sort((a, b) => (a.size || 0) - (b.size || 0));
+        case 'type-img':
+            return arr.sort((a, b) => {
+                const diff = (a.type === 'IMAGE' ? 0 : 1) - (b.type === 'IMAGE' ? 0 : 1);
+                return diff !== 0 ? diff : a.name.localeCompare(b.name);
+            });
+        case 'type-vid':
+            return arr.sort((a, b) => {
+                const diff = (a.type === 'VIDEO' ? 0 : 1) - (b.type === 'VIDEO' ? 0 : 1);
+                return diff !== 0 ? diff : a.name.localeCompare(b.name);
+            });
+        case 'date-desc':
+            return arr.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+        case 'date-asc':
+            return arr.sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
+        default:
+            return arr;
+    }
 }
 
 function renderFilteredWallpapers(wallpapers) {
@@ -87,6 +150,7 @@ function renderFilteredWallpapers(wallpapers) {
 function createCard(wall) {
     const card = document.createElement('div');
     card.className = 'slice-card';
+    card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
     const img = document.createElement('img');
     img.className = 'preview-media';
@@ -98,14 +162,19 @@ function createCard(wall) {
     badge.className = `fmt-badge${wall.type === 'VIDEO' ? ' video' : ''}`;
     badge.textContent = wall.ext;
 
+    const sizeBadge = document.createElement('span');
+    sizeBadge.className = 'size-badge';
+    sizeBadge.textContent = wall.sizeFormatted || '';
+
     card.appendChild(img);
     card.appendChild(badge);
+    if (wall.sizeFormatted) card.appendChild(sizeBadge);
 
     // apply
     card.addEventListener('click', async () => {
         card.style.outline = '2px solid #89b4fa';
-        await ipcRenderer.invoke('apply-wallpaper', { filepath: wall.path });
-        setTimeout(() => ipcRenderer.send('close-app'), APPLY_CLOSE_DELAY);
+        await window.wallpaperAPI.apply(wall.path);
+        setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
     });
 
     // delete
@@ -137,7 +206,7 @@ function showDeleteDialog(wall, card) {
 
     const name = document.createElement('div');
     name.className = 'delete-name';
-    name.textContent = path.basename(wall.path);
+    name.textContent = getBasename(wall.path);
 
     const btns = document.createElement('div');
     btns.className = 'delete-btns';
@@ -151,13 +220,17 @@ function showDeleteDialog(wall, card) {
     deleteBtn.className = 'btn-delete';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', async () => {
-        const res = await ipcRenderer.invoke('delete-wallpaper', { filepath: wall.path });
-        if (res.success) {
+        const res = await window.wallpaperAPI.remove(wall.path);
+        if (res && res.success) {
             overlay.remove();
+            allWallpapers = allWallpapers.filter(w => w.path !== wall.path);
             card.style.transition = `opacity ${CARD_FADE_DURATION}ms ease, transform ${CARD_FADE_DURATION}ms ease`;
             card.style.opacity = '0';
             card.style.transform = 'scale(0.75) rotateY(-20deg)';
-            setTimeout(() => card.remove(), CARD_FADE_DURATION + 20);
+            setTimeout(() => {
+                card.remove();
+                filterAndRender();
+            }, CARD_FADE_DURATION + 20);
         }
     });
 

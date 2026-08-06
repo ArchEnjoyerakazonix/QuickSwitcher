@@ -3,15 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' file: data:; connect-src 'self';">
     <title>QuickSwitcher</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="window-container">
 
-        <!-- ABSOLUTE TOP-LEFT SEARCH -->
+        <!-- ABSOLUTE TOP-LEFT SEARCH & SORT -->
         <div class="top-left-search">
             <input type="text" id="search-input" placeholder="Search..." autocomplete="off" spellcheck="false" />
+            <div class="sort-container">
+                <button class="sort-btn" id="sort-btn" title="Sort wallpapers">Sort ▾</button>
+                <div class="sort-dropdown hidden" id="sort-dropdown">
+                    <div class="sort-option active" data-sort="name-asc">Name (A-Z)</div>
+                    <div class="sort-option" data-sort="size-desc">Size (Largest)</div>
+                    <div class="sort-option" data-sort="size-asc">Size (Smallest)</div>
+                    <div class="sort-option" data-sort="type-img">Type (Images First)</div>
+                    <div class="sort-option" data-sort="type-vid">Type (Videos First)</div>
+                    <div class="sort-option" data-sort="date-desc">Date (Newest)</div>
+                    <div class="sort-option" data-sort="date-asc">Date (Oldest)</div>
+                </div>
+            </div>
         </div>
 
         <!-- CENTER: Wallpaper scroll track (full width) -->

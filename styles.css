@@ -60,38 +60,117 @@ html, body {
     opacity: 0.6;
 }
 
-/* ── TOP-LEFT SEARCH ─────────────────────────────────────────── */
+/* ── TOP-LEFT SEARCH & SORT ──────────────────────────────────── */
 .top-left-search {
     position: absolute;
-    top: 3px;
-    left: 4px;
+    top: 6px;
+    left: 8px;
     z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 #search-input {
     background: rgba(17, 17, 27, 0.75);
     border: 1px solid rgba(137, 180, 250, 0.25);
     border-radius: 8px;
-    padding: 4px 10px;
+    padding: 0 10px;
+    height: 24px;
     color: var(--text);
     font-size: 11px;
     font-weight: 500;
     font-family: 'Outfit', sans-serif;
     outline: none;
-    width: 100px;
+    width: 95px;
     backdrop-filter: blur(8px);
     transition: all 0.2s ease;
+    box-sizing: border-box;
 }
 
 #search-input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 10px var(--accent-glow);
     background: rgba(17, 17, 27, 0.95);
-    width: 140px;
+    width: 125px;
 }
 
 #search-input::placeholder {
     color: var(--subtext);
+}
+
+.sort-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.sort-btn {
+    background: rgba(17, 17, 27, 0.85);
+    border: 1px solid rgba(137, 180, 250, 0.3);
+    border-radius: 8px;
+    padding: 0 9px;
+    height: 24px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'Outfit', sans-serif;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+.sort-btn:hover {
+    background: rgba(137, 180, 250, 0.18);
+    border-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.sort-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: rgba(17, 17, 27, 0.96);
+    border: 1px solid rgba(137, 180, 250, 0.3);
+    border-radius: 8px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 130px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(16px);
+    z-index: 200;
+}
+
+.sort-dropdown.hidden {
+    display: none;
+}
+
+.sort-option {
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--subtext);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    white-space: nowrap;
+}
+
+.sort-option:hover {
+    background: rgba(137, 180, 250, 0.12);
+    color: var(--text);
+}
+
+.sort-option.active {
+    background: rgba(137, 180, 250, 0.22);
+    color: var(--accent);
+    font-weight: 700;
 }
 
 /* ── CENTER PANEL (scroll track) ──────────────────────────────── */
@@ -216,6 +295,22 @@ html, body {
 .fmt-badge.video {
     color: var(--red);
     border-color: rgba(243,139,168,0.5);
+}
+
+/* Size badge on card bottom-left */
+.size-badge {
+    position: absolute;
+    bottom: 7px;
+    left: 7px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--subtext);
+    background: rgba(10,12,20,0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px;
+    padding: 2px 4px;
+    backdrop-filter: blur(4px);
 }
 
 /* Hover overlay hint */
