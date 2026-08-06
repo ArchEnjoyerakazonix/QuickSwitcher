@@ -53,7 +53,7 @@ Add keybindings to your Hyprland configuration (`~/.config/hypr/hyprland.conf` o
 
 ```lua
 -- Launch QuickSwitcher
-bind = CTRL SUPER, W, exec, ~/.config/quickswitcher/node_modules/.bin/electron --no-sandbox ~/.config/quickswitcher
+bind = CTRL SUPER, W, exec, ~/.config/quickswitcher/node_modules/.bin/electron ~/.config/quickswitcher
 ```
 
 Optional window rules for smooth bottom placement:
