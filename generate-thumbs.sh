@@ -12,6 +12,10 @@ DIRS=(
     "$HOME/.config/wallpapers"
 )
 
+export MAGICK_MEMORY_LIMIT="256MiB"
+export MAGICK_MAP_LIMIT="512MiB"
+export MAGICK_DISK_LIMIT="1GiB"
+
 count=0
 for dir in "${DIRS[@]}"; do
     [ -d "$dir" ] || continue
@@ -23,12 +27,12 @@ for dir in "${DIRS[@]}"; do
 
         case "${ext,,}" in
             mp4|webm)
-                ffmpeg -y -ss 2 -i "$f" -vframes 1 \
+                ffmpeg -threads 2 -y -ss 2 -i "$f" -vframes 1 \
                     -vf "scale=160:260:force_original_aspect_ratio=increase,crop=160:260" \
                     -q:v 4 "$thumb" 2>/dev/null && count=$((count+1))
                 ;;
             jpg|jpeg|png|webp)
-                magick "$f" -thumbnail "160x260^" -gravity center \
+                magick -limit memory 256MiB -limit map 512MiB "$f" -thumbnail "160x260^" -gravity center \
                     -extent 160x260 -quality 80 "$thumb" 2>/dev/null && count=$((count+1))
                 ;;
         esac

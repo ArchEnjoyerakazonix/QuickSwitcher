@@ -94,11 +94,11 @@ function ensureThumbnail(fullPath, thumbPath, isVideo) {
     if (fs.existsSync(thumbPath)) return thumbPath;
     if (!isVideo) return fullPath;
     try {
-        execFileSync('ffmpeg', ['-y', '-ss', '00:00:02', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
+        execFileSync('ffmpeg', ['-threads', '2', '-y', '-ss', '00:00:02', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
         if (fs.existsSync(thumbPath)) return thumbPath;
     } catch (e) {
         try {
-            execFileSync('ffmpeg', ['-y', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
+            execFileSync('ffmpeg', ['-threads', '2', '-y', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
             if (fs.existsSync(thumbPath)) return thumbPath;
         } catch (err) {}
     }
