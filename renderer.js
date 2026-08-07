@@ -5,6 +5,7 @@ const APPLY_CLOSE_DELAY = 300; // ms before closing after applying wallpaper
 const CARD_FADE_DURATION = 220; // ms for card delete animation
 
 let allWallpapers = [];
+let favoritePaths = new Set();
 let currentSort = 'name-asc';
 
 function getBasename(filePath) {
@@ -57,6 +58,7 @@ function setupControls() {
                 document.querySelectorAll('.sort-option').forEach(el => el.classList.remove('active'));
                 opt.classList.add('active');
                 currentSort = opt.getAttribute('data-sort');
+                sortBtn.textContent = (opt.textContent.replace('⭐ ', '') || 'Sort') + ' ▾';
                 sortDropdown.classList.add('hidden');
                 filterAndRender();
             });
@@ -83,7 +85,16 @@ async function loadWallpapers() {
     const track = document.getElementById('slices-track');
     track.innerHTML = '<div class="loading-msg">⚡ Loading wallpapers...</div>';
 
-    allWallpapers = await window.wallpaperAPI.list();
+    try {
+        const [wallpapers, favs] = await Promise.all([
+            window.wallpaperAPI.list(),
+            window.wallpaperAPI.getFavorites ? window.wallpaperAPI.getFavorites() : []
+        ]);
+        favoritePaths = new Set(favs || []);
+        allWallpapers = wallpapers;
+    } catch (e) {
+        allWallpapers = await window.wallpaperAPI.list();
+    }
     filterAndRender();
 }
 
@@ -108,6 +119,13 @@ function sortWallpapers(list) {
     switch (currentSort) {
         case 'name-asc':
             return arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        case 'favorites':
+            return arr.sort((a, b) => {
+                const aFav = favoritePaths.has(a.path) ? 1 : 0;
+                const bFav = favoritePaths.has(b.path) ? 1 : 0;
+                if (bFav !== aFav) return bFav - aFav;
+                return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+            });
         case 'size-desc':
             return arr.sort((a, b) => (b.size || 0) - (a.size || 0));
         case 'size-asc':
@@ -149,7 +167,8 @@ function renderFilteredWallpapers(wallpapers) {
 
 function createCard(wall) {
     const card = document.createElement('div');
-    card.className = 'slice-card';
+    const isFav = favoritePaths.has(wall.path);
+    card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
     card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
     const img = document.createElement('img');
@@ -157,6 +176,32 @@ function createCard(wall) {
     img.loading = 'lazy';
     img.decoding = 'async';
     img.src = `file://${wall.thumb}`;
+
+    const favBtn = document.createElement('div');
+    favBtn.className = `favorite-btn${isFav ? ' active' : ''}`;
+    favBtn.textContent = isFav ? '★' : '☆';
+    favBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
+
+    favBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const updatedFavs = await window.wallpaperAPI.toggleFavorite(wall.path);
+        favoritePaths = new Set(updatedFavs || []);
+        
+        const nowFav = favoritePaths.has(wall.path);
+        favBtn.className = `favorite-btn${nowFav ? ' active' : ''}`;
+        favBtn.textContent = nowFav ? '★' : '☆';
+        favBtn.title = nowFav ? 'Remove from favorites' : 'Add to favorites';
+        
+        if (nowFav) {
+            card.classList.add('is-favorite');
+        } else {
+            card.classList.remove('is-favorite');
+        }
+
+        if (currentSort === 'favorites') {
+            filterAndRender();
+        }
+    });
 
     const badge = document.createElement('span');
     badge.className = `fmt-badge${wall.type === 'VIDEO' ? ' video' : ''}`;
@@ -167,6 +212,7 @@ function createCard(wall) {
     sizeBadge.textContent = wall.sizeFormatted || '';
 
     card.appendChild(img);
+    card.appendChild(favBtn);
     card.appendChild(badge);
     if (wall.sizeFormatted) card.appendChild(sizeBadge);
 
@@ -229,7 +275,8 @@ function showDeleteDialog(wall, card) {
             card.style.transform = 'scale(0.75) rotateY(-20deg)';
             setTimeout(() => {
                 card.remove();
-                filterAndRender();
+                const wallCount = document.getElementById('wall-count');
+                if (wallCount) wallCount.textContent = `${allWallpapers.length} wallpapers`;
             }, CARD_FADE_DURATION + 20);
         }
     });

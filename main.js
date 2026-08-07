@@ -22,8 +22,25 @@ const WALL_DIRS = [
 
 const THUMB_DIR = path.join(os.homedir(), '.cache/wallpaper_hub_thumbs');
 const SET_WALL_SCRIPT = path.join(process.env.HOME, '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
+const FAV_FILE = path.join(THUMB_DIR, 'favorites.json');
 
 if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+
+function loadFavorites() {
+    try {
+        if (fs.existsSync(FAV_FILE)) {
+            const data = JSON.parse(fs.readFileSync(FAV_FILE, 'utf-8'));
+            if (Array.isArray(data)) return data;
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveFavorites(favsArray) {
+    try {
+        fs.writeFileSync(FAV_FILE, JSON.stringify(favsArray, null, 2), 'utf-8');
+    } catch (e) {}
+}
 
 function getThumbPath(originalPath) {
     const hash = crypto.createHash('md5').update(originalPath).digest('hex');
@@ -213,10 +230,30 @@ ipcMain.handle('delete-wallpaper', async (_event, { filepath }) => {
         if (fs.existsSync(thumbPath)) {
             fs.unlinkSync(thumbPath);
         }
+        let favs = loadFavorites();
+        if (favs.includes(safePath)) {
+            favs = favs.filter(p => p !== safePath);
+            saveFavorites(favs);
+        }
         return { success: true };
     } catch {
         return { success: false, error: 'Wallpaper deletion failed' };
     }
+});
+
+ipcMain.handle('get-favorites', async () => {
+    return loadFavorites();
+});
+
+ipcMain.handle('toggle-favorite', async (_event, { filepath }) => {
+    let favs = loadFavorites();
+    if (favs.includes(filepath)) {
+        favs = favs.filter(p => p !== filepath);
+    } else {
+        favs.push(filepath);
+    }
+    saveFavorites(favs);
+    return favs;
 });
 
 ipcMain.on('close-app', () => {
