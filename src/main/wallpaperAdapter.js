@@ -16,7 +16,7 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     const { setWallScript, monitors = [], ws = 1, configDir, previousPath, mediaType } = options;
 
     const ext = path.extname(filepath).toLowerCase();
-    const isVideo = mediaType ? (mediaType === 'VIDEO') : ['.mp4', '.webm'].includes(ext);
+    const isVideo = mediaType ? (mediaType === 'VIDEO') : ['.mp4', '.webm', '.gif'].includes(ext);
     const platform = process.platform;
     const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
 

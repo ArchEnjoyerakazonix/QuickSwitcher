@@ -327,7 +327,7 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
 }
 
 const EXTS = new Set(['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif']);
-const VIDEO_EXTS = new Set(['.mp4', '.webm']);
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.gif']);
 
 ipcMain.handle('get-wallpapers', async (event) => {
     assertTrustedRenderer(event, mainWindow, rendererUrl);
