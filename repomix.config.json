@@ -1,0 +1,13 @@
+{
+  "output": {
+    "style": "markdown"
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "custom": [
+      "!package-lock.json",
+      "assets/**"
+    ]
+  }
+}

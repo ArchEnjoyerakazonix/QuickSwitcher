@@ -5,17 +5,53 @@ const { promisify } = require('util');
 const { pathToFileURL } = require('url');
 
 const pExecFile = promisify(execFile);
+const DEFAULT_TIMEOUT = 10000;
 
-// Track PIDs of mpvpaper instances launched by QuickSwitcher (P1 Fix)
-const ownedMpvpaperPids = new Set();
+// Persistent registry for mpvpaper PIDs across QuickSwitcher launches (P0/P1 Lifecycle Fix)
+function getPidRegistryPath(configDir) {
+    return path.join(configDir || path.join(require('os').homedir(), '.config/QuickSwitcher'), 'mpvpaper_pids.json');
+}
 
-function stopOwnedMpvpaper() {
-    for (const pid of ownedMpvpaperPids) {
-        try {
-            process.kill(pid, 'SIGTERM');
-        } catch {}
-        ownedMpvpaperPids.delete(pid);
+function loadMpvpaperPids(configDir) {
+    try {
+        const file = getPidRegistryPath(configDir);
+        if (fs.existsSync(file)) {
+            const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            if (Array.isArray(data)) return data;
+        }
+    } catch {}
+    return [];
+}
+
+function saveMpvpaperPids(configDir, pids) {
+    try {
+        const file = getPidRegistryPath(configDir);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(pids, null, 2), 'utf-8');
+    } catch {}
+}
+
+function isProcessMpvpaper(pid) {
+    try {
+        const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+        return cmdline.includes('mpvpaper');
+    } catch {
+        return false;
     }
+}
+
+function stopOwnedMpvpaper(configDir) {
+    const pids = loadMpvpaperPids(configDir);
+    const remaining = [];
+
+    for (const pid of pids) {
+        if (isProcessMpvpaper(pid)) {
+            try {
+                process.kill(pid, 'SIGTERM');
+            } catch {}
+        }
+    }
+    saveMpvpaperPids(configDir, []);
 }
 
 /**
@@ -23,14 +59,14 @@ function stopOwnedMpvpaper() {
  * Supports: ArchEclipse (custom script), Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME, KDE, XFCE, Windows, macOS
  */
 async function applyWallpaperUniversal(filepath, options = {}) {
-    const { setWallScript, monitors = [], ws = 1 } = options;
+    const { setWallScript, monitors = [], ws = 1, configDir } = options;
 
     // 1. PRIMARY PRIORITY: If ArchEclipse set-wallpaper.sh script exists, use it!
     if (setWallScript && fs.existsSync(setWallScript)) {
         const monList = monitors.length ? monitors : ['DP-2'];
         try {
             await Promise.all(
-                monList.map(mon => pExecFile('bash', [setWallScript, String(ws), mon, filepath], { timeout: 10000 }))
+                monList.map(mon => pExecFile('bash', [setWallScript, String(ws), mon, filepath], { timeout: DEFAULT_TIMEOUT }))
             );
             return { ok: true, backend: 'ArchEclipse (set-wallpaper.sh)' };
         } catch (e) {
@@ -43,15 +79,17 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     const platform = process.platform;
     const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
 
-    // 2. VIDEO HANDLING FOR WAYLAND / LINUX (P1 Fix: Safe tracked process management)
+    // 2. VIDEO HANDLING FOR WAYLAND / LINUX (P0/P1 Fix: Persistent mpvpaper PID lifecycle)
     if (isVideo) {
         if (platform !== 'linux') {
             return { ok: false, backend: null, error: `Video wallpapers are not supported natively on ${platform}` };
         }
 
-        stopOwnedMpvpaper();
+        stopOwnedMpvpaper(configDir);
 
         const monList = monitors.length ? monitors : ['*'];
+        const newPids = [];
+
         try {
             await Promise.all(monList.map(mon => {
                 return new Promise((resolve, reject) => {
@@ -61,14 +99,36 @@ async function applyWallpaperUniversal(filepath, options = {}) {
                         { detached: true, stdio: 'ignore' }
                     );
 
-                    child.once('error', reject);
+                    let settled = false;
+
+                    child.once('error', (err) => {
+                        if (!settled) {
+                            settled = true;
+                            reject(err);
+                        }
+                    });
+
+                    child.once('exit', (code) => {
+                        if (!settled) {
+                            settled = true;
+                            reject(new Error(`mpvpaper exited immediately with code ${code}`));
+                        }
+                    });
+
                     child.once('spawn', () => {
-                        ownedMpvpaperPids.add(child.pid);
-                        child.unref();
-                        resolve(child.pid);
+                        setTimeout(() => {
+                            if (!settled && child.exitCode === null) {
+                                settled = true;
+                                newPids.push(child.pid);
+                                child.unref();
+                                resolve(child.pid);
+                            }
+                        }, 300);
                     });
                 });
             }));
+
+            saveMpvpaperPids(configDir, newPids);
             return { ok: true, backend: 'mpvpaper' };
         } catch (e) {
             return { ok: false, backend: 'mpvpaper', error: e.message };
@@ -76,7 +136,7 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     }
 
     // Stop any video wallpapers when switching to a static image
-    stopOwnedMpvpaper();
+    stopOwnedMpvpaper(configDir);
 
     // 3. WINDOWS PLATFORM (P1 Fix: Validate SystemParametersInfo return code)
     if (platform === 'win32') {
@@ -96,7 +156,8 @@ if (-not $ok) {
 `;
         try {
             await pExecFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
-                env: { ...process.env, QS_WALLPAPER_PATH: filepath }
+                env: { ...process.env, QS_WALLPAPER_PATH: filepath },
+                timeout: DEFAULT_TIMEOUT
             });
             return { ok: true, backend: 'Windows (SystemParametersInfo)' };
         } catch (e) {
@@ -116,7 +177,7 @@ on run argv
   end tell
 end run`;
         try {
-            await pExecFile('osascript', ['-e', script, filepath]);
+            await pExecFile('osascript', ['-e', script, filepath], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'macOS (Finder)' };
         } catch (e) {
             return { ok: false, backend: 'osascript', error: e.message };
@@ -130,9 +191,9 @@ end run`;
                        desktop.includes('CINNAMON') ? 'org.cinnamon.desktop.background' :
                        'org.gnome.desktop.background';
         try {
-            await pExecFile('gsettings', ['set', schema, 'picture-uri', safeUri]);
+            await pExecFile('gsettings', ['set', schema, 'picture-uri', safeUri], { timeout: DEFAULT_TIMEOUT });
             if (desktop.includes('GNOME')) {
-                await pExecFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri]).catch(() => {});
+                await pExecFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], { timeout: DEFAULT_TIMEOUT }).catch(() => {});
             }
             return { ok: true, backend: `Linux (${desktop})` };
         } catch (e) {
@@ -142,7 +203,7 @@ end run`;
 
     if (desktop.includes('KDE')) {
         try {
-            await pExecFile('plasma-apply-wallpaperimage', [filepath]);
+            await pExecFile('plasma-apply-wallpaperimage', [filepath], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'KDE Plasma' };
         } catch (e) {
             console.warn('[QuickSwitcher] KDE wallpaper apply error:', e.message);
@@ -154,7 +215,7 @@ end run`;
             const { stdout } = await pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 });
             const props = stdout.split('\n').map(s => s.trim()).filter(l => l.endsWith('/last-image'));
             if (props.length === 0) throw new Error('No XFCE wallpaper properties found');
-            await Promise.all(props.map(prop => pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop, '-s', filepath])));
+            await Promise.all(props.map(prop => pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop, '-s', filepath], { timeout: DEFAULT_TIMEOUT })));
             return { ok: true, backend: 'XFCE' };
         } catch (e) {
             return { ok: false, backend: 'XFCE', error: e.message };
@@ -164,19 +225,20 @@ end run`;
     // 6. HYPRLAND / WAYLAND / X11 FALLBACKS
     try {
         await pExecFile('swww', ['query'], { timeout: 1000 });
-        await pExecFile('swww', ['img', filepath]);
+        await pExecFile('swww', ['img', filepath], { timeout: DEFAULT_TIMEOUT });
         return { ok: true, backend: 'swww' };
     } catch (e) { /* swww not active */ }
 
+    // Preload & assign first, then unload unused resources (Hyprpaper fix)
     try {
-        await pExecFile('hyprctl', ['hyprpaper', 'unload', 'all'], { timeout: 2000 }).catch(() => {});
         await pExecFile('hyprctl', ['hyprpaper', 'preload', filepath], { timeout: 5000 });
         const monList = monitors.length ? monitors : [''];
-        await Promise.all(monList.map(mon => pExecFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`])));
+        await Promise.all(monList.map(mon => pExecFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`], { timeout: DEFAULT_TIMEOUT })));
+        await pExecFile('hyprctl', ['hyprpaper', 'unload', 'all'], { timeout: 2000 }).catch(() => {});
         return { ok: true, backend: 'hyprpaper' };
     } catch (err) {
         try {
-            await pExecFile('feh', ['--bg-fill', filepath]);
+            await pExecFile('feh', ['--bg-fill', filepath], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'feh' };
         } catch (fehErr) {
             return { ok: false, backend: null, error: 'No supported Linux wallpaper daemon found (install swww, hyprpaper, or feh)' };

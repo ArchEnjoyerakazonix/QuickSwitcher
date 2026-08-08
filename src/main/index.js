@@ -163,13 +163,19 @@ function resolveAllowedPath(filepath) {
     return isInsideRoots(resolved, roots) ? resolved : null;
 }
 
-// IPC Security Sender Validation (P2 Fix)
+let mainWindow = null;
+let rendererUrl = '';
+
+// IPC Security Sender & Frame URL Validation (P1 Fix)
 function assertTrustedRenderer(event) {
     if (!mainWindow || mainWindow.isDestroyed()) {
         throw new Error('Main window unavailable');
     }
     if (event.sender !== mainWindow.webContents) {
-        throw new Error('Untrusted IPC sender');
+        throw new Error('Untrusted IPC sender webContents');
+    }
+    if (event.senderFrame && event.senderFrame.url !== rendererUrl) {
+        throw new Error('Untrusted IPC sender frame URL');
     }
 }
 
@@ -188,8 +194,6 @@ function detectMonitors() {
     } catch (e) {}
     return [];
 }
-
-let mainWindow = null;
 
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -223,7 +227,7 @@ function createWindow() {
     });
 
     const rendererPath = path.join(__dirname, '../renderer/index.html');
-    const rendererUrl = pathToFileURL(rendererPath).href;
+    rendererUrl = pathToFileURL(rendererPath).href;
 
     // Navigation Security Lockdown (S5)
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -264,9 +268,13 @@ function pumpFFmpegQueue() {
     }
 }
 
+// P1 Fix: Send structured payload { thumbPath, thumbUrl }
 function notifyThumbReady(thumbPath) {
     if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('thumb-ready', pathToFileURL(thumbPath).href);
+        mainWindow.webContents.send('thumb-ready', {
+            thumbPath: thumbPath,
+            thumbUrl: pathToFileURL(thumbPath).href
+        });
     }
 }
 
@@ -294,7 +302,6 @@ async function ensureThumbnailAsync(targetPath, thumbPath, isVideo) {
                         '-vframes', '1', '-vf', 'scale=260:-1', '-q:v', '4', thumbPath
                     ];
                     execFile('ffmpeg', ffmpegArgs, { timeout: 8000 }, async (err) => {
-                        pendingThumbs.delete(thumbPath);
                         try {
                             const stat = await fsp.stat(thumbPath);
                             if (!err && stat.size > 0) {
@@ -319,6 +326,9 @@ async function ensureThumbnailAsync(targetPath, thumbPath, isVideo) {
                             resolve(thumbPath);
                         });
                     });
+                }).finally(() => {
+                    // P2 Fix: Clean pendingThumbs ONLY after all attempts (including retry) finish
+                    pendingThumbs.delete(thumbPath);
                 });
             });
         }
@@ -371,7 +381,7 @@ ipcMain.handle('get-wallpapers', async (event) => {
                     name: ent.name,
                     sourcePath: sourcePath,
                     path: sourcePath, // Shown and deleted by UI
-                    targetPath: targetPath, // Used for applying & validation
+                    targetPath: targetPath, // Used for applying & favorites
                     thumb: thumb,
                     thumbUrl: pathToFileURL(thumb).href, // P1 Fix: Safe URL
                     pathUrl: pathToFileURL(sourcePath).href,
@@ -413,7 +423,8 @@ ipcMain.handle('apply-wallpaper', async (event, { filepath }) => {
     const result = await applyWallpaperUniversal(targetPath, {
         setWallScript: SET_WALL_SCRIPT,
         monitors,
-        ws
+        ws,
+        configDir: CONFIG_DIR
     });
 
     if (result.ok) {
@@ -475,7 +486,7 @@ ipcMain.handle('toggle-favorite', async (event, { filepath }) => {
     return favs;
 });
 
-// P0 Fix: Deleting a wallpaper deletes the source entry (symlink), NOT the target file
+// P1 Fix: Delete Authorization checks containment for BOTH sourcePath AND targetPath
 ipcMain.handle('delete-wallpaper', async (event, { filepath }) => {
     assertTrustedRenderer(event);
 
@@ -483,21 +494,29 @@ ipcMain.handle('delete-wallpaper', async (event, { filepath }) => {
         return { success: false, error: 'Invalid wallpaper path' };
     }
 
+    const sourcePath = path.resolve(filepath);
     const roots = resolveRootsOnce();
+
+    // Verify sourcePath is inside an allowed root
+    const isSourceAllowed = isInsideRoots(sourcePath, roots);
+    if (!isSourceAllowed) {
+        return { success: false, error: 'Source path outside allowed wallpaper roots' };
+    }
+
     let targetPath;
     try {
-        targetPath = await fsp.realpath(filepath);
+        targetPath = await fsp.realpath(sourcePath);
     } catch {
         return { success: false, error: 'File does not exist' };
     }
 
     if (!isInsideRoots(targetPath, roots)) {
-        return { success: false, error: 'Path outside allowed wallpaper roots' };
+        return { success: false, error: 'Target path outside allowed wallpaper roots' };
     }
 
     try {
         // Unlink sourcePath (deletes symlink if it was a symlink!)
-        await fsp.unlink(filepath);
+        await fsp.unlink(sourcePath);
 
         // Delete thumbnail for target file
         const thumbPath = getThumbPath(targetPath);

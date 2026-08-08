@@ -21,10 +21,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function setupThumbReadyListener() {
     if (window.wallpaperAPI && window.wallpaperAPI.onThumbReady) {
-        window.wallpaperAPI.onThumbReady((thumbPath) => {
+        window.wallpaperAPI.onThumbReady((data) => {
+            if (!data) return;
+            const thumbPath = typeof data === 'string' ? data : data.thumbPath;
+            const thumbUrl = typeof data === 'string' ? `file://${data}` : data.thumbUrl;
+
             document.querySelectorAll('.preview-media').forEach(img => {
                 if (img.dataset.thumbTarget === thumbPath) {
-                    img.src = `file://${thumbPath}?t=${Date.now()}`;
+                    const sep = thumbUrl.includes('?') ? '&' : '?';
+                    img.src = `${thumbUrl}${sep}t=${Date.now()}`;
                 }
             });
         });
@@ -176,8 +181,8 @@ function sortWallpapers(list) {
             return arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
         case 'favorites':
             return arr.sort((a, b) => {
-                const aFav = favoritePaths.has(a.path) ? 1 : 0;
-                const bFav = favoritePaths.has(b.path) ? 1 : 0;
+                const aFav = favoritePaths.has(a.targetPath || a.path) ? 1 : 0;
+                const bFav = favoritePaths.has(b.targetPath || b.path) ? 1 : 0;
                 if (bFav !== aFav) return bFav - aFav;
                 return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
             });
@@ -223,7 +228,8 @@ function renderFilteredWallpapers(wallpapers) {
 
 function createCard(wall) {
     const card = document.createElement('div');
-    const isFav = favoritePaths.has(wall.path);
+    const favoriteKey = wall.targetPath || wall.path;
+    const isFav = favoritePaths.has(favoriteKey);
     card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
     card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
@@ -241,10 +247,10 @@ function createCard(wall) {
 
     favBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const updatedFavs = await window.wallpaperAPI.toggleFavorite(wall.path);
+        const updatedFavs = await window.wallpaperAPI.toggleFavorite(favoriteKey);
         favoritePaths = new Set(updatedFavs || []);
         
-        const nowFav = favoritePaths.has(wall.path);
+        const nowFav = favoritePaths.has(favoriteKey);
         favBtn.className = `favorite-btn${nowFav ? ' active' : ''}`;
         favBtn.textContent = nowFav ? '★' : '☆';
         favBtn.title = nowFav ? 'Remove from favorites' : 'Add to favorites';
