@@ -7,15 +7,29 @@ const CARD_FADE_DURATION = 220; // ms for card delete animation
 let allWallpapers = [];
 let favoritePaths = new Set();
 let currentSort = 'name-asc';
+let focusedCardIndex = -1;
 
 function getBasename(filePath) {
-    return filePath ? filePath.split('/').pop() : '';
+    return filePath ? filePath.split(/[\\/]/).pop() : '';
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
     setupControls();
     await loadWallpapers();
+    setupThumbReadyListener();
 });
+
+function setupThumbReadyListener() {
+    if (window.wallpaperAPI && window.wallpaperAPI.onThumbReady) {
+        window.wallpaperAPI.onThumbReady((thumbPath) => {
+            document.querySelectorAll('.preview-media').forEach(img => {
+                if (img.dataset.thumbTarget === thumbPath) {
+                    img.src = `file://${thumbPath}?t=${Date.now()}`;
+                }
+            });
+        });
+    }
+}
 
 function setupControls() {
     const searchInput = document.getElementById('search-input');
@@ -24,20 +38,47 @@ function setupControls() {
 
     document.getElementById('close-btn').addEventListener('click', () => window.wallpaperAPI.close());
     
+    // Keyboard Navigation & Shortcuts (R5)
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') window.wallpaperAPI.close();
-        if (document.activeElement === searchInput) {
-            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-                return;
+        if (e.key === 'Escape') {
+            if (document.activeElement === searchInput) {
+                searchInput.blur();
+            } else {
+                window.wallpaperAPI.close();
             }
         }
-        if (e.key === 'ArrowRight') scrollTrack(SCROLL_STEP);
-        if (e.key === 'ArrowLeft') scrollTrack(-SCROLL_STEP);
+        if (e.key === '/' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            if (searchInput) searchInput.focus();
+            return;
+        }
+
+        const cards = document.querySelectorAll('.slice-card');
+        if (!cards.length) return;
+
+        if (document.activeElement === searchInput) {
+            if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                searchInput.blur();
+                setFocusedCard(0);
+                return;
+            }
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') return;
+        }
+
+        if (e.key === 'ArrowRight' || e.key === 'l') {
+            setFocusedCard(focusedCardIndex + 1);
+        } else if (e.key === 'ArrowLeft' || e.key === 'h') {
+            setFocusedCard(focusedCardIndex - 1);
+        } else if (e.key === 'Enter' && focusedCardIndex >= 0 && focusedCardIndex < cards.length) {
+            cards[focusedCardIndex].click();
+        }
     });
 
+    let searchDebounce = null;
     if (searchInput) {
         searchInput.addEventListener('input', () => {
-            filterAndRender();
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(filterAndRender, 90);
         });
     }
 
@@ -76,6 +117,21 @@ function setupControls() {
     }, { passive: false });
 }
 
+function setFocusedCard(index) {
+    const cards = document.querySelectorAll('.slice-card');
+    if (!cards.length) return;
+
+    if (focusedCardIndex >= 0 && focusedCardIndex < cards.length) {
+        cards[focusedCardIndex].classList.remove('keyboard-focused');
+    }
+
+    focusedCardIndex = Math.max(0, Math.min(index, cards.length - 1));
+    const targetCard = cards[focusedCardIndex];
+    targetCard.classList.add('keyboard-focused');
+
+    targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
 function scrollTrack(delta) {
     const track = document.getElementById('slices-track');
     track.scrollLeft += delta;
@@ -105,7 +161,7 @@ function filterAndRender() {
     let list = allWallpapers;
     if (query) {
         list = list.filter(w => {
-            const name = getBasename(w.path).toLowerCase();
+            const name = (w.name || getBasename(w.path)).toLowerCase();
             return name.includes(query);
         });
     }
@@ -153,6 +209,7 @@ function renderFilteredWallpapers(wallpapers) {
     const track = document.getElementById('slices-track');
     document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
     track.innerHTML = '';
+    focusedCardIndex = -1;
 
     if (wallpapers.length === 0) {
         track.innerHTML = '<div class="loading-msg">No wallpapers found...</div>';
@@ -176,6 +233,7 @@ function createCard(wall) {
     img.loading = 'lazy';
     img.decoding = 'async';
     img.src = `file://${wall.thumb}`;
+    img.dataset.thumbTarget = wall.thumb;
 
     const favBtn = document.createElement('div');
     favBtn.className = `favorite-btn${isFav ? ' active' : ''}`;
@@ -216,11 +274,15 @@ function createCard(wall) {
     card.appendChild(badge);
     if (wall.sizeFormatted) card.appendChild(sizeBadge);
 
-    // apply
+    // apply (A3 Fix: Only close if backend apply succeeded)
     card.addEventListener('click', async () => {
         card.style.outline = '2px solid #89b4fa';
-        await window.wallpaperAPI.apply(wall.path);
-        setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
+        const res = await window.wallpaperAPI.apply(wall.path);
+        if (res && res.ok) {
+            setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
+        } else {
+            card.style.outline = '2px solid #f38ba8';
+        }
     });
 
     // delete
@@ -233,7 +295,6 @@ function createCard(wall) {
 }
 
 function showDeleteDialog(wall, card) {
-    // Remove any existing dialog
     document.querySelectorAll('.delete-overlay').forEach(el => el.remove());
 
     const overlay = document.createElement('div');
@@ -252,7 +313,7 @@ function showDeleteDialog(wall, card) {
 
     const name = document.createElement('div');
     name.className = 'delete-name';
-    name.textContent = getBasename(wall.path);
+    name.textContent = wall.name || getBasename(wall.path);
 
     const btns = document.createElement('div');
     btns.className = 'delete-btns';
@@ -285,7 +346,6 @@ function showDeleteDialog(wall, card) {
     popup.append(icon, msg, name, btns);
     overlay.appendChild(popup);
 
-    // dismiss on backdrop click
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) overlay.remove();
     });

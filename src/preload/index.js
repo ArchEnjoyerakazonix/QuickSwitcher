@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld('wallpaperAPI', {
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
     toggleFavorite: (filepath) => ipcRenderer.invoke('toggle-favorite', { filepath }),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
+    onThumbReady: (cb) => ipcRenderer.on('thumb-ready', (_event, thumbPath) => cb(thumbPath)),
     close: () => ipcRenderer.send('close-app'),
 });

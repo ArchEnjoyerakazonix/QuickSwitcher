@@ -1,24 +1,61 @@
 const { app, BrowserWindow, ipcMain, screen, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises;
 const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const os = require('os');
 const { applyWallpaperUniversal } = require('./wallpaperAdapter');
 
-// perf
+// Logger
+const log = {
+    warn: (...args) => console.warn('[QuickSwitcher]', ...args),
+    info: (...args) => console.log('[QuickSwitcher]', ...args)
+};
+
+// GPU Performance Flags
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('disable-gpu-vsync');
 app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
+if (process.env.QUICKSWITCHER_FORCE_GPU === '1') {
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    app.commandLine.appendSwitch('disable-gpu-vsync');
+}
 
-const THUMB_DIR = path.join(os.homedir(), '.cache/wallpaper_hub_thumbs');
-const SET_WALL_SCRIPT = path.join(os.homedir(), '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
-const FAV_FILE = path.join(THUMB_DIR, 'favorites.json');
-const CUSTOM_FOLDERS_FILE = path.join(THUMB_DIR, 'custom_folders.json');
+// Single Instance Lock (A5)
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isVisible()) mainWindow.hide();
+            else {
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        }
+    });
+}
 
-if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+// User Data Directories (A1 Fix: Config in userData, binary thumbs in cache)
+let CONFIG_DIR, THUMB_DIR, FAV_FILE, CUSTOM_FOLDERS_FILE, SET_WALL_SCRIPT;
+
+function initPaths() {
+    try {
+        CONFIG_DIR = app.getPath('userData');
+        THUMB_DIR = path.join(app.getPath('cache'), 'quickswitcher-thumbs');
+    } catch {
+        CONFIG_DIR = path.join(os.homedir(), '.config/QuickSwitcher');
+        THUMB_DIR = path.join(os.homedir(), '.cache/quickswitcher-thumbs');
+    }
+    FAV_FILE = path.join(CONFIG_DIR, 'favorites.json');
+    CUSTOM_FOLDERS_FILE = path.join(CONFIG_DIR, 'custom_folders.json');
+    SET_WALL_SCRIPT = path.join(os.homedir(), '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
+
+    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+}
 
 function loadCustomFolders() {
     try {
@@ -26,14 +63,18 @@ function loadCustomFolders() {
             const data = JSON.parse(fs.readFileSync(CUSTOM_FOLDERS_FILE, 'utf-8'));
             if (Array.isArray(data)) return data;
         }
-    } catch (e) {}
+    } catch (e) {
+        log.warn('Failed to load custom_folders.json:', e.message);
+    }
     return [];
 }
 
 function saveCustomFolders(foldersArray) {
     try {
         fs.writeFileSync(CUSTOM_FOLDERS_FILE, JSON.stringify(foldersArray, null, 2), 'utf-8');
-    } catch (e) {}
+    } catch (e) {
+        log.warn('Failed to save custom_folders.json:', e.message);
+    }
 }
 
 function getWallpaperDirectories() {
@@ -50,20 +91,52 @@ function getWallpaperDirectories() {
     return Array.from(unique);
 }
 
+function resolveRootsOnce() {
+    const roots = [];
+    for (const dir of getWallpaperDirectories()) {
+        try {
+            if (fs.existsSync(dir)) {
+                roots.push(fs.realpathSync(dir));
+            }
+        } catch (e) {}
+    }
+    return Array.from(new Set(roots));
+}
+
+function isInsideRoots(resolved, roots) {
+    return roots.some(root => {
+        try {
+            const rel = path.relative(root, resolved);
+            return (
+                rel !== '' &&
+                rel !== '..' &&
+                !rel.startsWith(`..${path.sep}`) &&
+                !path.isAbsolute(rel)
+            );
+        } catch {
+            return false;
+        }
+    });
+}
+
 function loadFavorites() {
     try {
         if (fs.existsSync(FAV_FILE)) {
             const data = JSON.parse(fs.readFileSync(FAV_FILE, 'utf-8'));
             if (Array.isArray(data)) return data;
         }
-    } catch (e) {}
+    } catch (e) {
+        log.warn('Failed to load favorites.json:', e.message);
+    }
     return [];
 }
 
 function saveFavorites(favsArray) {
     try {
         fs.writeFileSync(FAV_FILE, JSON.stringify(favsArray, null, 2), 'utf-8');
-    } catch (e) {}
+    } catch (e) {
+        log.warn('Failed to save favorites.json:', e.message);
+    }
 }
 
 function getThumbPath(originalPath) {
@@ -79,23 +152,28 @@ function resolveAllowedWallpaper(filepath) {
     } catch {
         return null;
     }
-    const wallDirs = getWallpaperDirectories();
-    const allowed = wallDirs.some(dir => {
-        if (!fs.existsSync(dir)) return false;
-        try {
-            const root = fs.realpathSync(dir);
-            const relative = path.relative(root, resolved);
-            return (
-                relative !== '' &&
-                relative !== '..' &&
-                !relative.startsWith(`..${path.sep}`) &&
-                !path.isAbsolute(relative)
-            );
-        } catch {
-            return false;
-        }
-    });
-    return allowed ? resolved : null;
+    const roots = resolveRootsOnce();
+    return isInsideRoots(resolved, roots) ? resolved : null;
+}
+
+// Monitor Detection (X2 Fix)
+function detectMonitors() {
+    if (process.platform !== 'linux') return [];
+    try {
+        const out = execFileSync('hyprctl', ['monitors', '-j'], { timeout: 1500, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+        const names = JSON.parse(out).map(m => m.name).filter(Boolean);
+        if (names.length) return names;
+    } catch (e) {}
+    try {
+        const out = execFileSync('wlr-randr', [], { timeout: 1500, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+        const names = [...out.matchAll(/^(\S+)/gm)].map(m => m[1]);
+        if (names.length) return names;
+    } catch (e) {}
+    try {
+        return screen.getAllDisplays().map((_, idx) => `display-${idx}`);
+    } catch {
+        return [];
+    }
 }
 
 let mainWindow = null;
@@ -131,22 +209,77 @@ function createWindow() {
         }
     });
 
+    // Navigation Security Lockdown (S5)
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.webContents.on('will-navigate', (e, url) => {
+        if (!url.startsWith('file://')) e.preventDefault();
+    });
+
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    });
 }
 
-function ensureThumbnail(fullPath, thumbPath, isVideo) {
-    if (fs.existsSync(thumbPath)) return thumbPath;
-    if (!isVideo) return fullPath;
-    try {
-        execFileSync('ffmpeg', ['-threads', '2', '-y', '-ss', '00:00:02', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
-        if (fs.existsSync(thumbPath)) return thumbPath;
-    } catch (e) {
-        try {
-            execFileSync('ffmpeg', ['-threads', '2', '-y', '-i', fullPath, '-vframes', '1', '-q:v', '2', thumbPath], { timeout: 3000, stdio: 'ignore' });
-            if (fs.existsSync(thumbPath)) return thumbPath;
-        } catch (err) {}
+// Non-blocking Async Thumbnail Queue (P1, P4)
+const pendingThumbs = new Set();
+
+function notifyThumbReady(thumbPath) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('thumb-ready', thumbPath);
     }
-    return fullPath;
+}
+
+async function ensureThumbnailAsync(fullPath, thumbPath, isVideo) {
+    if (fs.existsSync(thumbPath)) return thumbPath;
+
+    if (!pendingThumbs.has(thumbPath)) {
+        pendingThumbs.add(thumbPath);
+
+        if (!isVideo) {
+            // Generate runtime image thumbnail via Electron nativeImage (P4 Fix)
+            setTimeout(async () => {
+                try {
+                    const img = nativeImage.createFromPath(fullPath);
+                    if (!img.isEmpty()) {
+                        const resized = img.resize({ width: 260, quality: 'good' });
+                        await fsp.writeFile(thumbPath, resized.toJPEG(80));
+                        notifyThumbReady(thumbPath);
+                    }
+                } catch (e) {
+                    log.warn('Image thumbnail failed:', fullPath, e.message);
+                } finally {
+                    pendingThumbs.delete(thumbPath);
+                }
+            }, 10);
+        } else {
+            // Async non-blocking ffmpeg video thumbnailing (P1 Fix)
+            const ffmpegArgs = [
+                '-threads', '2', '-y', '-ss', '00:00:02', '-i', fullPath,
+                '-vframes', '1', '-vf', 'scale=260:-1', '-q:v', '4', thumbPath
+            ];
+            execFile('ffmpeg', ffmpegArgs, { timeout: 8000 }, (err) => {
+                if (!err && fs.existsSync(thumbPath)) {
+                    pendingThumbs.delete(thumbPath);
+                    notifyThumbReady(thumbPath);
+                } else {
+                    // Retry at 00:00:00 for short clips
+                    const retryArgs = [
+                        '-threads', '2', '-y', '-i', fullPath,
+                        '-vframes', '1', '-vf', 'scale=260:-1', '-q:v', '4', thumbPath
+                    ];
+                    execFile('ffmpeg', retryArgs, { timeout: 8000 }, (err2) => {
+                        pendingThumbs.delete(thumbPath);
+                        if (!err2 && fs.existsSync(thumbPath)) {
+                            notifyThumbReady(thumbPath);
+                        }
+                    });
+                }
+            });
+        }
+    }
+    return fullPath; // Usable placeholder while background thumbnail generates
 }
 
 function formatBytes(bytes) {
@@ -157,78 +290,91 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+const EXTS = new Set(['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif']);
+const VIDEO_EXTS = new Set(['.mp4', '.webm']);
+
+// Async Parallel Scan (P2, P3)
 ipcMain.handle('get-wallpapers', async () => {
-    let files = [];
-    const wallDirs = getWallpaperDirectories();
-    for (const dir of wallDirs) {
-        if (fs.existsSync(dir)) {
-            try {
-                const list = fs.readdirSync(dir);
-                for (const file of list) {
-                    const fullPath = path.join(dir, file);
-                    const safePath = resolveAllowedWallpaper(fullPath);
-                    if (!safePath) continue;
-
-                    const ext = path.extname(safePath).toLowerCase();
-                    if (['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
-                        try {
-                            const stat = fs.statSync(safePath);
-                            if (stat.isFile()) {
-                                const isVideo = ['.mp4', '.webm'].includes(ext);
-                                const thumbPath = getThumbPath(safePath);
-                                const thumb = ensureThumbnail(safePath, thumbPath, isVideo);
-
-                                files.push({
-                                    name: file,
-                                    path: safePath,
-                                    thumb,
-                                    type: isVideo ? 'VIDEO' : 'IMAGE',
-                                    ext: ext.replace('.', '').toUpperCase(),
-                                    size: stat.size,
-                                    sizeFormatted: formatBytes(stat.size),
-                                    mtime: stat.mtimeMs
-                                });
-                            }
-                        } catch (e) {}
-                    }
-                }
-            } catch (e) {}
+    const roots = resolveRootsOnce();
+    const perRoot = await Promise.all(roots.map(async (root) => {
+        let entries;
+        try {
+            entries = await fsp.readdir(root, { withFileTypes: true });
+        } catch {
+            return [];
         }
-    }
+
+        const out = await Promise.all(entries.map(async (ent) => {
+            if (!ent.isFile() && !ent.isSymbolicLink()) return null;
+            const ext = path.extname(ent.name).toLowerCase();
+            if (!EXTS.has(ext)) return null;
+
+            try {
+                const fullPath = path.join(root, ent.name);
+                const resolved = await fsp.realpath(fullPath);
+                if (!isInsideRoots(resolved, roots)) return null;
+
+                const stat = await fsp.stat(resolved);
+                if (!stat.isFile()) return null;
+
+                const isVideo = VIDEO_EXTS.has(ext);
+                const thumbPath = getThumbPath(resolved);
+                const thumb = await ensureThumbnailAsync(resolved, thumbPath, isVideo);
+
+                return {
+                    name: ent.name,
+                    path: resolved,
+                    thumb,
+                    type: isVideo ? 'VIDEO' : 'IMAGE',
+                    ext: ext.slice(1).toUpperCase(),
+                    size: stat.size,
+                    sizeFormatted: formatBytes(stat.size),
+                    mtime: stat.mtimeMs
+                };
+            } catch {
+                return null;
+            }
+        }));
+        return out.filter(Boolean);
+    }));
+
     const uniqueMap = new Map();
-    files.forEach(f => uniqueMap.set(f.path, f));
+    for (const file of perRoot.flat()) {
+        uniqueMap.set(file.path, file);
+    }
     return Array.from(uniqueMap.values());
 });
 
 ipcMain.handle('apply-wallpaper', async (_event, { filepath }) => {
     const safePath = resolveAllowedWallpaper(filepath);
-    if (!safePath) return false;
-    filepath = safePath;
+    if (!safePath) return { ok: false, error: 'Invalid wallpaper path' };
 
-    let monitors;
-    try {
-        const out = execFileSync('hyprctl', ['monitors', '-j'], { timeout: 2000 }).toString();
-        monitors = JSON.parse(out).map(m => m.name);
-    } catch {
-        monitors = ['DP-2'];
-    }
-
+    const monitors = detectMonitors();
     let ws = 1;
     try {
-        const out = execFileSync('hyprctl', ['activeworkspace', '-j'], { timeout: 2000 }).toString();
+        const out = execFileSync('hyprctl', ['activeworkspace', '-j'], { timeout: 1500, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
         ws = JSON.parse(out).id ?? 1;
     } catch { /* default ws=1 */ }
 
-    // Execute universal adapter (Priority 1 is SET_WALL_SCRIPT, preserving your exact setup)
-    applyWallpaperUniversal(filepath, {
+    const result = await applyWallpaperUniversal(safePath, {
         setWallScript: SET_WALL_SCRIPT,
         monitors,
         ws
     });
 
-    execFile('notify-send', ['QuickSwitcher', `Wallpaper applied: ${path.basename(filepath)}`]);
-    return true;
+    if (result.ok) {
+        execFile('notify-send', ['QuickSwitcher', `Applied: ${path.basename(safePath)}`], () => {});
+    } else {
+        execFile('notify-send', ['-u', 'critical', 'QuickSwitcher', result.error || 'Failed to set wallpaper'], () => {});
+    }
+    return result;
 });
+
+// S4 Fix: Guard against selecting root directories like /, /home, $HOME
+const FORBIDDEN_ROOTS = new Set([
+    '/', '/home', '/etc', '/usr', '/var', '/boot',
+    os.homedir(), path.parse(os.homedir()).root
+].map(p => path.resolve(p)));
 
 ipcMain.handle('select-folder', async () => {
     if (!mainWindow) return null;
@@ -237,8 +383,19 @@ ipcMain.handle('select-folder', async () => {
         title: 'Select Custom Wallpaper Directory'
     });
     if (!result.canceled && result.filePaths.length > 0) {
-        const selectedDir = result.filePaths[0];
+        const selectedDir = path.resolve(result.filePaths[0]);
+
+        if (FORBIDDEN_ROOTS.has(selectedDir)) {
+            dialog.showErrorBox('Folder Too Broad', 'Please choose a dedicated wallpaper folder, not a system root or home directory.');
+            return null;
+        }
+
         const custom = loadCustomFolders();
+        if (custom.length >= 32) {
+            dialog.showErrorBox('Limit Reached', 'Maximum 32 custom wallpaper folders allowed.');
+            return null;
+        }
+
         if (!custom.includes(selectedDir)) {
             custom.push(selectedDir);
             saveCustomFolders(custom);
@@ -248,16 +405,31 @@ ipcMain.handle('select-folder', async () => {
     return null;
 });
 
+// S3 Fix: Enforce resolveAllowedWallpaper inside toggle-favorite
+ipcMain.handle('toggle-favorite', async (_event, { filepath }) => {
+    const safePath = resolveAllowedWallpaper(filepath);
+    if (!safePath) return loadFavorites();
+
+    let favs = loadFavorites();
+    if (favs.includes(safePath)) {
+        favs = favs.filter(p => p !== safePath);
+    } else {
+        favs = [...favs, safePath].slice(-5000);
+    }
+    saveFavorites(favs);
+    return favs;
+});
+
 ipcMain.handle('delete-wallpaper', async (_event, { filepath }) => {
     const safePath = resolveAllowedWallpaper(filepath);
     if (!safePath) {
         return { success: false, error: 'Invalid wallpaper path' };
     }
     try {
-        fs.unlinkSync(safePath);
+        await fsp.unlink(safePath);
         const thumbPath = getThumbPath(safePath);
         if (fs.existsSync(thumbPath)) {
-            fs.unlinkSync(thumbPath);
+            await fsp.unlink(thumbPath).catch(() => {});
         }
         let favs = loadFavorites();
         if (favs.includes(safePath)) {
@@ -265,7 +437,7 @@ ipcMain.handle('delete-wallpaper', async (_event, { filepath }) => {
             saveFavorites(favs);
         }
         return { success: true };
-    } catch {
+    } catch (e) {
         return { success: false, error: 'Wallpaper deletion failed' };
     }
 });
@@ -274,20 +446,13 @@ ipcMain.handle('get-favorites', async () => {
     return loadFavorites();
 });
 
-ipcMain.handle('toggle-favorite', async (_event, { filepath }) => {
-    let favs = loadFavorites();
-    if (favs.includes(filepath)) {
-        favs = favs.filter(p => p !== filepath);
-    } else {
-        favs.push(filepath);
-    }
-    saveFavorites(favs);
-    return favs;
-});
-
 ipcMain.on('close-app', () => {
     app.quit();
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    initPaths();
+    createWindow();
+});
+
 app.on('window-all-closed', () => app.quit());
