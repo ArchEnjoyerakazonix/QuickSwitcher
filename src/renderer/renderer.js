@@ -70,8 +70,13 @@ function setupControls() {
             setFocusedCard(focusedCardIndex + 1);
         } else if (e.key === 'ArrowLeft' || e.key === 'h') {
             setFocusedCard(focusedCardIndex - 1);
-        } else if (e.key === 'Enter' && focusedCardIndex >= 0 && focusedCardIndex < cards.length) {
-            cards[focusedCardIndex].click();
+        } else if (e.key === 'Enter' && focusedCardIndex >= 0 && focusedCardIndex < activeFilteredWallpapers.length) {
+            const wall = activeFilteredWallpapers[focusedCardIndex];
+            if (wall) {
+                window.wallpaperAPI.apply(wall.id).then(res => {
+                    if (res && res.ok) setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
+                });
+            }
         }
     });
 
@@ -110,7 +115,7 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Native GPU Threaded Compositor Wheel Scroll
+    // Native GPU Threaded Compositor Wheel Scroll & Virtual Windowing listener
     const wrapper = document.getElementById('slices-wrapper');
     const track = document.getElementById('slices-track');
     if (wrapper && track) {
@@ -120,22 +125,40 @@ function setupControls() {
                 track.scrollBy({ left: e.deltaY * 1.2, behavior: 'auto' });
             }
         }, { passive: false });
+
+        let scrollTicking = false;
+        track.addEventListener('scroll', () => {
+            if (!scrollTicking) {
+                scrollTicking = true;
+                requestAnimationFrame(() => {
+                    renderVirtualWindow();
+                    scrollTicking = false;
+                });
+            }
+        }, { passive: true });
     }
 }
 
 function setFocusedCard(index) {
-    const cards = document.querySelectorAll('.slice-card');
-    if (!cards.length) return;
+    if (!activeFilteredWallpapers.length) return;
 
-    if (focusedCardIndex >= 0 && focusedCardIndex < cards.length) {
-        cards[focusedCardIndex].classList.remove('keyboard-focused');
+    focusedCardIndex = Math.max(0, Math.min(index, activeFilteredWallpapers.length - 1));
+
+    const track = document.getElementById('slices-track');
+    if (track) {
+        const targetScrollLeft = focusedCardIndex * ITEM_WIDTH;
+        track.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
     }
 
-    focusedCardIndex = Math.max(0, Math.min(index, cards.length - 1));
-    const targetCard = cards[focusedCardIndex];
-    targetCard.classList.add('keyboard-focused');
+    renderVirtualWindow();
 
-    targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    document.querySelectorAll('.slice-card').forEach(card => {
+        if (parseInt(card.dataset.cardIndex, 10) === focusedCardIndex) {
+            card.classList.add('keyboard-focused');
+        } else {
+            card.classList.remove('keyboard-focused');
+        }
+    });
 }
 
 function scrollTrack(delta) {
@@ -211,28 +234,85 @@ function sortWallpapers(list) {
     }
 }
 
+const ITEM_WIDTH = 170; // 160px card + 10px gap
+const OVERSCAN_BUFFER = 4; // 4 extra cards buffer on left and right for seamless fast scrolling
+
+let activeFilteredWallpapers = [];
+let lastStartIndex = -1;
+let lastEndIndex = -1;
+let isVirtualizing = false;
+
 function renderFilteredWallpapers(wallpapers) {
     const track = document.getElementById('slices-track');
     document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
-    track.innerHTML = '';
+    
+    activeFilteredWallpapers = wallpapers;
+    lastStartIndex = -1;
+    lastEndIndex = -1;
     focusedCardIndex = -1;
+    track.scrollLeft = 0;
 
     if (wallpapers.length === 0) {
         track.innerHTML = '<div class="loading-msg">No wallpapers found...</div>';
         return;
     }
 
-    const frag = document.createDocumentFragment();
-    wallpapers.forEach(wall => frag.appendChild(createCard(wall)));
-    track.appendChild(frag);
-    track.scrollLeft = 0;
+    renderVirtualWindow(true);
 }
 
-function createCard(wall) {
+function renderVirtualWindow(force = false) {
+    const track = document.getElementById('slices-track');
+    if (!track || !activeFilteredWallpapers.length) return;
+
+    const scrollLeft = track.scrollLeft;
+    const viewportWidth = track.clientWidth || window.innerWidth;
+
+    const visibleStartIndex = Math.floor(scrollLeft / ITEM_WIDTH);
+    const visibleEndIndex = Math.ceil((scrollLeft + viewportWidth) / ITEM_WIDTH);
+
+    const startIndex = Math.max(0, visibleStartIndex - OVERSCAN_BUFFER);
+    const endIndex = Math.min(activeFilteredWallpapers.length, visibleEndIndex + OVERSCAN_BUFFER);
+
+    if (!force && startIndex === lastStartIndex && endIndex === lastEndIndex) {
+        return;
+    }
+
+    lastStartIndex = startIndex;
+    lastEndIndex = endIndex;
+
+    const leftSpacerWidth = startIndex * ITEM_WIDTH;
+    const rightSpacerWidth = (activeFilteredWallpapers.length - endIndex) * ITEM_WIDTH;
+
+    track.innerHTML = '';
+
+    if (leftSpacerWidth > 0) {
+        const leftSpacer = document.createElement('div');
+        leftSpacer.style.cssText = `min-width: ${leftSpacerWidth}px; width: ${leftSpacerWidth}px; height: 100%; flex-shrink: 0; pointer-events: none;`;
+        track.appendChild(leftSpacer);
+    }
+
+    const visibleItems = activeFilteredWallpapers.slice(startIndex, endIndex);
+    const frag = document.createDocumentFragment();
+    visibleItems.forEach((wall, idx) => {
+        const cardIndex = startIndex + idx;
+        frag.appendChild(createCard(wall, cardIndex));
+    });
+    track.appendChild(frag);
+
+    if (rightSpacerWidth > 0) {
+        const rightSpacer = document.createElement('div');
+        rightSpacer.style.cssText = `min-width: ${rightSpacerWidth}px; width: ${rightSpacerWidth}px; height: 100%; flex-shrink: 0; pointer-events: none;`;
+        track.appendChild(rightSpacer);
+    }
+}
+
+function createCard(wall, cardIndex) {
     const card = document.createElement('div');
     const favoriteKey = wall.favoriteKey;
     const isFav = favoritePaths.has(favoriteKey);
-    card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
+    const isFocused = cardIndex === focusedCardIndex;
+    card.className = `slice-card${isFav ? ' is-favorite' : ''}${isFocused ? ' keyboard-focused' : ''}`;
+    card.dataset.cardIndex = cardIndex;
     card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
     const img = document.createElement('img');
