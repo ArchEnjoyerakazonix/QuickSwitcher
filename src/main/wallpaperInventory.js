@@ -96,6 +96,10 @@ function getLiveInventory() {
     return wallpaperInventory;
 }
 
+function removeWallpaperRecord(id) {
+    wallpaperInventory.delete(id);
+}
+
 module.exports = {
     rememberWallpaper,
     publicWallpaper,
@@ -103,5 +107,6 @@ module.exports = {
     revalidateRecord,
     replaceWallpaperInventory,
     getLiveInventory,
-    getFavoriteKey
+    getFavoriteKey,
+    removeWallpaperRecord
 };

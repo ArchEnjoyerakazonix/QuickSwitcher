@@ -15,18 +15,24 @@ const {
     revalidateRecord,
     replaceWallpaperInventory,
     getWallpaperRecord,
-    getFavoriteKey
+    getFavoriteKey,
+    getLiveInventory,
+    removeWallpaperRecord
 } = require('./wallpaperInventory');
-const {
-    CONFIG_DIR,
-    THUMB_DIR,
-    FAV_FILE,
-    CUSTOM_FOLDERS_FILE,
-    SET_WALL_SCRIPT,
-    STATE_FILE
-} = require('./appPaths');
+const { isInsideRoots } = require('./pathPolicy');
+const { getThumbPath } = require('./thumbnailPolicy');
+const { createAppPaths } = require('./appPaths');
 
 const pExecFile = promisify(execFile);
+
+// Resolve Electron-native paths
+const paths = createAppPaths({
+    configDir: process.env.QUICKSWITCHER_CONFIG_DIR || app.getPath('userData'),
+    cacheDir: process.env.QUICKSWITCHER_CACHE_DIR || app.getPath('cache'),
+    homeDir: app.getPath('home')
+});
+
+const { CONFIG_DIR, THUMB_DIR, FAV_FILE, CUSTOM_FOLDERS_FILE, SET_WALL_SCRIPT, STATE_FILE } = paths;
 
 // Logger
 const log = {
@@ -100,43 +106,12 @@ async function resolveRootsAsync() {
     return Array.from(new Set(roots));
 }
 
-function isInsideRoots(targetPath, roots) {
-    return roots.some(root => {
-        try {
-            const rel = path.relative(root, targetPath);
-            return (
-                rel !== '' &&
-                rel !== '..' &&
-                !rel.startsWith(`..${path.sep}`) &&
-                !path.isAbsolute(rel)
-            );
-        } catch {
-            return false;
-        }
-    });
-}
-
 async function loadFavorites() {
     return await readJson(FAV_FILE, []);
 }
 
 async function saveFavorites(favsArray) {
     await queueJsonWrite(FAV_FILE, favsArray);
-}
-
-function getThumbPath(targetPath, stat) {
-    const fingerprint = [
-        targetPath,
-        stat.size,
-        Math.trunc(stat.mtimeMs)
-    ].join('\0');
-
-    const hash = crypto
-        .createHash('sha256')
-        .update(fingerprint)
-        .digest('hex');
-
-    return path.join(THUMB_DIR, `${hash}.jpg`);
 }
 
 let mainWindow = null;
@@ -237,26 +212,28 @@ async function mapLimit(items, limit, worker) {
 const MAX_CONCURRENT_FFMPEG = 2;
 let activeFFmpegJobs = 0;
 const ffmpegQueue = [];
-const pendingThumbs = new Set();
+const pendingThumbs = new Map();
 
-function enqueueFFmpegJob(jobFn) {
-    return new Promise((resolve, reject) => {
-        ffmpegQueue.push({ jobFn, resolve, reject });
-        pumpFFmpegQueue();
-    });
+function subscribeThumbnail(thumbPath, wallpaperId) {
+    let entry = pendingThumbs.get(thumbPath);
+    if (!entry) {
+        entry = {
+            subscribers: new Set(),
+            running: false
+        };
+        pendingThumbs.set(thumbPath, entry);
+    }
+    entry.subscribers.add(wallpaperId);
+    return entry;
 }
 
-function pumpFFmpegQueue() {
-    while (activeFFmpegJobs < MAX_CONCURRENT_FFMPEG && ffmpegQueue.length > 0) {
-        const { jobFn, resolve, reject } = ffmpegQueue.shift();
-        activeFFmpegJobs++;
-        jobFn()
-            .then(resolve, reject)
-            .finally(() => {
-                activeFFmpegJobs--;
-                pumpFFmpegQueue();
-            });
+function notifyThumbnailSubscribers(thumbPath) {
+    const entry = pendingThumbs.get(thumbPath);
+    if (!entry) return;
+    for (const id of entry.subscribers) {
+        notifyThumbReady(id, thumbPath);
     }
+    pendingThumbs.delete(thumbPath);
 }
 
 function notifyThumbReady(wallpaperId, thumbPath) {
@@ -277,11 +254,14 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
         } catch {}
     }
 
-    if (!pendingThumbs.has(thumbPath)) {
-        pendingThumbs.add(thumbPath);
+    const entry = subscribeThumbnail(thumbPath, wallpaperId);
+
+    if (!entry.running) {
+        entry.running = true;
 
         if (!isVideo) {
-            pendingThumbs.delete(thumbPath);
+            entry.running = false;
+            notifyThumbnailSubscribers(thumbPath);
             return targetPath;
         } else {
             enqueueFFmpegJob(() => {
@@ -294,7 +274,7 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
                         try {
                             const stat = await fsp.stat(thumbPath);
                             if (!err && stat.size > 0) {
-                                notifyThumbReady(wallpaperId, thumbPath);
+                                notifyThumbnailSubscribers(thumbPath);
                                 resolve(thumbPath);
                                 return;
                             }
@@ -308,14 +288,12 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
                             try {
                                 const stat2 = await fsp.stat(thumbPath);
                                 if (!err2 && stat2.size > 0) {
-                                    notifyThumbReady(wallpaperId, thumbPath);
+                                    notifyThumbnailSubscribers(thumbPath);
                                 }
                             } catch {}
                             resolve(thumbPath);
                         });
                     });
-                }).finally(() => {
-                    pendingThumbs.delete(thumbPath);
                 });
             });
         }
@@ -353,7 +331,7 @@ ipcMain.handle('get-wallpapers', async (event) => {
                 if (!stat.isFile()) return null;
 
                 const isVideo = VIDEO_EXTS.has(ext);
-                const thumbPath = getThumbPath(targetPath, stat);
+                const thumbPath = getThumbPath(THUMB_DIR, targetPath, stat);
 
                 const resolvedPreviewPath = await ensureThumbnailAsync(
                     crypto.createHash('sha256').update(sourcePath).digest('hex'),
@@ -423,11 +401,14 @@ ipcMain.handle('apply-wallpaper', async (event, payload) => {
         monitors,
         ws,
         configDir: CONFIG_DIR,
-        previousPath: appState.activeWallpaperPath
+        previousPath: appState.activeWallpaperPath,
+        mediaType: record.type
     });
 
     if (result.ok) {
-        await queueJsonWrite(STATE_FILE, { activeWallpaperPath: record.targetPath });
+        queueJsonWrite(STATE_FILE, { activeWallpaperPath: record.targetPath }).catch(error => {
+            log.warn('Failed to persist active wallpaper:', error.message);
+        });
         execFile('notify-send', ['QuickSwitcher', `Applied: ${record.name}`], () => {});
     } else {
         execFile('notify-send', ['-u', 'critical', 'QuickSwitcher', result.error || 'Failed to set wallpaper'], () => {});
@@ -499,6 +480,16 @@ ipcMain.handle('toggle-favorite', async (event, payload) => {
     return updated.map(p => getFavoriteKey(p));
 });
 
+function countTargetReferences(targetPath, excludingId) {
+    let references = 0;
+    for (const record of getLiveInventory().values()) {
+        if (record.id !== excludingId && record.targetPath === targetPath) {
+            references++;
+        }
+    }
+    return references;
+}
+
 ipcMain.handle('delete-wallpaper', async (event, payload) => {
     assertTrustedRenderer(event, mainWindow, rendererUrl);
     
@@ -517,9 +508,14 @@ ipcMain.handle('delete-wallpaper', async (event, payload) => {
     try {
         await fsp.unlink(record.sourcePath);
 
-        // Delete thumbnail
-        if (fs.existsSync(record.thumbPath)) {
-            await fsp.unlink(record.thumbPath).catch(() => {});
+        // Remove from inventory immediately
+        removeWallpaperRecord(id);
+
+        // Delete thumbnail only if no other inventory record references this target
+        if (countTargetReferences(record.targetPath, id) === 0) {
+            if (fs.existsSync(record.thumbPath)) {
+                await fsp.unlink(record.thumbPath).catch(() => {});
+            }
         }
 
         await updateJson(FAV_FILE, [], (favs) => {

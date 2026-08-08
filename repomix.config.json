@@ -4,10 +4,13 @@
   },
   "ignore": {
     "useGitignore": true,
-    "useDefaultPatterns": true,
-    "custom": [
-      "!package-lock.json",
-      "assets/**"
+    "useDefaultPatterns": false,
+    "customPatterns": [
+      ".git/**",
+      "node_modules/**",
+      "assets/**",
+      "dist/**",
+      "out/**"
     ]
   }
 }

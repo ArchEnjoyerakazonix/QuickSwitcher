@@ -15,8 +15,8 @@ function getBasename(filePath) {
 
 document.addEventListener('DOMContentLoaded', async () => {
     setupControls();
-    await loadWallpapers();
     setupThumbReadyListener();
+    await loadWallpapers();
 });
 
 function setupThumbReadyListener() {
