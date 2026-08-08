@@ -42,8 +42,6 @@ const log = {
 
 // GPU Performance Flags
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
 if (process.env.QUICKSWITCHER_FORCE_GPU === '1') {
     app.commandLine.appendSwitch('ignore-gpu-blocklist');
     app.commandLine.appendSwitch('disable-gpu-vsync');

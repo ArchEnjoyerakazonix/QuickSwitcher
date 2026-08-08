@@ -240,8 +240,10 @@ html, body {
     padding: 14px 20px;
     height: 100%;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     scroll-behavior: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
@@ -256,7 +258,7 @@ html, body {
     width: 160px;
     height: 250px;
     border-radius: 14px;
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.12);
     background: #11111b;
     overflow: hidden;
     cursor: pointer;
@@ -267,9 +269,7 @@ html, body {
     contain-intrinsic-size: 160px 250px;
     transition:
         transform 0.15s ease,
-        border-color 0.15s ease,
-        box-shadow 0.15s ease;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        border-color 0.15s ease;
 }
 
 .slice-card:hover,
