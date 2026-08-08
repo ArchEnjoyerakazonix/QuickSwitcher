@@ -39,22 +39,25 @@ if (!gotLock) {
 }
 
 // User Data Directories (A1 Fix: Config in userData, binary thumbs in cache)
-let CONFIG_DIR, THUMB_DIR, FAV_FILE, CUSTOM_FOLDERS_FILE, SET_WALL_SCRIPT;
+const CONFIG_DIR = path.join(os.homedir(), '.config/QuickSwitcher');
+const THUMB_DIR = path.join(os.homedir(), '.cache/quickswitcher-thumbs');
+const FAV_FILE = path.join(CONFIG_DIR, 'favorites.json');
+const CUSTOM_FOLDERS_FILE = path.join(CONFIG_DIR, 'custom_folders.json');
+const SET_WALL_SCRIPT = path.join(os.homedir(), '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
+
+if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
 
 function initPaths() {
     try {
-        CONFIG_DIR = app.getPath('userData');
-        THUMB_DIR = path.join(app.getPath('cache'), 'quickswitcher-thumbs');
-    } catch {
-        CONFIG_DIR = path.join(os.homedir(), '.config/QuickSwitcher');
-        THUMB_DIR = path.join(os.homedir(), '.cache/quickswitcher-thumbs');
-    }
-    FAV_FILE = path.join(CONFIG_DIR, 'favorites.json');
-    CUSTOM_FOLDERS_FILE = path.join(CONFIG_DIR, 'custom_folders.json');
-    SET_WALL_SCRIPT = path.join(os.homedir(), '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
-
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+        const uData = app.getPath('userData');
+        const uCache = app.getPath('cache');
+        if (uData && uCache) {
+            // Keep paths aligned with Electron app getters if available
+            fs.mkdirSync(uData, { recursive: true });
+            fs.mkdirSync(path.join(uCache, 'quickswitcher-thumbs'), { recursive: true });
+        }
+    } catch (e) {}
 }
 
 function loadCustomFolders() {
@@ -235,21 +238,8 @@ async function ensureThumbnailAsync(fullPath, thumbPath, isVideo) {
         pendingThumbs.add(thumbPath);
 
         if (!isVideo) {
-            // Generate runtime image thumbnail via Electron nativeImage (P4 Fix)
-            setTimeout(async () => {
-                try {
-                    const img = nativeImage.createFromPath(fullPath);
-                    if (!img.isEmpty()) {
-                        const resized = img.resize({ width: 260, quality: 'good' });
-                        await fsp.writeFile(thumbPath, resized.toJPEG(80));
-                        notifyThumbReady(thumbPath);
-                    }
-                } catch (e) {
-                    log.warn('Image thumbnail failed:', fullPath, e.message);
-                } finally {
-                    pendingThumbs.delete(thumbPath);
-                }
-            }, 10);
+            pendingThumbs.delete(thumbPath);
+            return fullPath; // Let Chromium handle image thumbnails natively with loading="lazy"
         } else {
             // Async non-blocking ffmpeg video thumbnailing (P1 Fix)
             const ffmpegArgs = [
@@ -297,7 +287,7 @@ ipcMain.handle('get-wallpapers', async () => {
         let entries;
         try {
             entries = await fsp.readdir(root, { withFileTypes: true });
-        } catch {
+        } catch (e) {
             return [];
         }
 
@@ -349,10 +339,12 @@ ipcMain.handle('apply-wallpaper', async (_event, { filepath }) => {
 
     const monitors = detectMonitors();
     let ws = 1;
-    try {
-        const out = execFileSync('hyprctl', ['activeworkspace', '-j'], { timeout: 1500, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
-        ws = JSON.parse(out).id ?? 1;
-    } catch { /* default ws=1 */ }
+    if (process.platform === 'linux') {
+        try {
+            const out = execFileSync('hyprctl', ['activeworkspace', '-j'], { timeout: 1500, stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+            ws = JSON.parse(out).id ?? 1;
+        } catch { /* default ws=1 */ }
+    }
 
     const result = await applyWallpaperUniversal(safePath, {
         setWallScript: SET_WALL_SCRIPT,

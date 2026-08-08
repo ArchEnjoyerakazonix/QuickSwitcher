@@ -99,9 +99,11 @@ end run`;
         execFile('gsettings', ['set', schema, 'picture-uri', safeUri], (err) => {
             if (err) console.warn('[QuickSwitcher] gsettings picture-uri error:', err.message);
         });
-        execFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], (err) => {
-            if (err) console.warn('[QuickSwitcher] gsettings picture-uri-dark error:', err.message);
-        });
+        if (desktop.includes('GNOME')) {
+            execFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], (err) => {
+                if (err) console.warn('[QuickSwitcher] gsettings picture-uri-dark error:', err.message);
+            });
+        }
         return { ok: true, backend: `Linux (${desktop})` };
     }
 
@@ -115,18 +117,17 @@ end run`;
     }
 
     if (desktop.includes('XFCE')) {
-        try {
-            const out = execFileSync('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 }).toString();
-            const props = out.split('\n').filter(l => l.trim().endsWith('/last-image'));
-            for (const prop of props) {
-                execFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop.trim(), '-s', filepath], (err) => {
-                    if (err) console.warn('[QuickSwitcher] xfconf-query error:', err.message);
-                });
+        execFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 }, (err, stdout) => {
+            if (!err && stdout) {
+                const props = stdout.split('\n').filter(l => l.trim().endsWith('/last-image'));
+                for (const prop of props) {
+                    execFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop.trim(), '-s', filepath], (e) => {
+                        if (e) console.warn('[QuickSwitcher] xfconf-query error:', e.message);
+                    });
+                }
             }
-            return { ok: true, backend: 'XFCE' };
-        } catch (e) {
-            console.warn('[QuickSwitcher] XFCE query error:', e.message);
-        }
+        });
+        return { ok: true, backend: 'XFCE' };
     }
 
     // 6. HYPRLAND / WAYLAND / X11 FALLBACKS

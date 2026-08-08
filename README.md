@@ -1,10 +1,10 @@
 # ⚡ QuickSwitcher
 
-A lightweight, GPU-accelerated wallpaper picker designed for **Arch Linux**, **Hyprland**, **KDE**, **GNOME**, **Windows**, and **macOS**. Built with Electron, Catppuccin Mocha styling, non-blocking async thumbnailing, and instant searching.
+> A hyper-minimalist, GPU-accelerated wallpaper switcher built for Linux ricing enthusiasts. Seamlessly integrated with Hyprland, X11, and major DEs.
 
-![QuickSwitcher Logo](assets/icon.png)
-
----
+**Why Electron?** Instant startup isn't the goal — instant *switching* is.
+The window is a transient overlay (single-instance lock, ~300px strip);
+the heavy lifting (scan, thumbnails, daemon calls) is fully async.
 
 ## ✨ Features
 

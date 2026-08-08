@@ -30,7 +30,7 @@ for dir in "${DIRS[@]}"; do
     [ -d "$dir" ] || continue
     while IFS= read -r -d '' f; do
         ext="${f##*.}"
-        hash=$(echo -n "$f" | md5sum | cut -d' ' -f1)
+        hash=$(echo -n "$(realpath "$f")" | md5sum | cut -d' ' -f1)
         thumb="$THUMB_DIR/${hash}.jpg"
         [ -f "$thumb" ] && continue
 
