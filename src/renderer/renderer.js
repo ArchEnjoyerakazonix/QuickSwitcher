@@ -3,21 +3,12 @@ const SCROLL_STEP = 500;       // px per arrow-key/button press
 const APPLY_CLOSE_DELAY = 300; // ms before closing after applying wallpaper
 const CARD_FADE_DURATION = 220; // ms for card delete animation
 
-const CARD_WIDTH = 160;
-const CARD_GAP = 10;
-const ITEM_WIDTH = CARD_WIDTH + CARD_GAP;
-const OVERSCAN_BUFFER = 6;
-
 let allWallpapers = [];
 let favoritePaths = new Set();
 let currentSort = 'name-asc';
 let focusedCardIndex = -1;
-
 let activeFilteredWallpapers = [];
-let lastStartIndex = -1;
-let lastEndIndex = -1;
 
-const mountedCards = new Map();   // id -> HTMLElement card
 const thumbOverrides = new Map(); // id -> versioned thumbUrl
 let isApplyingWallpaper = false;
 
@@ -44,11 +35,9 @@ function setupThumbReadyListener() {
             const wall = allWallpapers.find(w => w.id === id);
             if (wall) wall.thumbUrl = versionedUrl;
 
-            const card = mountedCards.get(id);
-            if (card) {
-                const img = card.querySelector('.preview-media');
-                if (img) img.src = versionedUrl;
-            }
+            document.querySelectorAll(`[data-wallpaper-id="${CSS.escape(id)}"]`).forEach(img => {
+                img.src = versionedUrl;
+            });
         });
     }
 }
@@ -91,7 +80,8 @@ function setupControls() {
             return;
         }
 
-        if (!activeFilteredWallpapers.length) return;
+        const cards = document.querySelectorAll('.slice-card');
+        if (!cards.length) return;
 
         if (document.activeElement === searchInput) {
             if (e.key === 'Enter' || e.key === 'ArrowDown') {
@@ -107,7 +97,7 @@ function setupControls() {
             setFocusedCard(focusedCardIndex - 1);
         } else if (e.key === 'Enter' && focusedCardIndex >= 0 && focusedCardIndex < activeFilteredWallpapers.length) {
             const wall = activeFilteredWallpapers[focusedCardIndex];
-            const card = mountedCards.get(wall.id);
+            const card = cards[focusedCardIndex];
             applyWallpaper(wall, card);
         }
     });
@@ -147,53 +137,32 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Frame-Coalesced Wheel & Virtual Windowing Scroll Listener
+    // Pure Native Passive Wheel Scroll (0 JS Blocking)
     const wrapper = document.getElementById('slices-wrapper');
     const track = document.getElementById('slices-track');
     if (wrapper && track) {
-        let pendingWheelDelta = 0;
-        let wheelFrame = null;
-
         wrapper.addEventListener('wheel', (e) => {
-            if (e.deltaY !== 0 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-                e.preventDefault();
-                pendingWheelDelta += e.deltaY * 1.2;
-
-                if (!wheelFrame) {
-                    wheelFrame = requestAnimationFrame(() => {
-                        track.scrollLeft += pendingWheelDelta;
-                        pendingWheelDelta = 0;
-                        wheelFrame = null;
-                    });
-                }
-            }
-        }, { passive: false });
-
-        let scrollTicking = false;
-        track.addEventListener('scroll', () => {
-            if (!scrollTicking) {
-                scrollTicking = true;
-                requestAnimationFrame(() => {
-                    renderVirtualWindow();
-                    scrollTicking = false;
-                });
+            if (e.deltaY !== 0) {
+                track.scrollLeft += e.deltaY;
             }
         }, { passive: true });
     }
 }
 
 function setFocusedCard(index) {
-    if (!activeFilteredWallpapers.length) return;
+    const cards = document.querySelectorAll('.slice-card');
+    if (!cards.length) return;
 
-    focusedCardIndex = Math.max(0, Math.min(index, activeFilteredWallpapers.length - 1));
-
-    const track = document.getElementById('slices-track');
-    if (track) {
-        const targetLeft = focusedCardIndex * ITEM_WIDTH - (track.clientWidth - CARD_WIDTH) / 2;
-        track.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+    if (focusedCardIndex >= 0 && focusedCardIndex < cards.length) {
+        cards[focusedCardIndex].classList.remove('keyboard-focused');
     }
 
-    renderVirtualWindow();
+    focusedCardIndex = Math.max(0, Math.min(index, cards.length - 1));
+    const targetCard = cards[focusedCardIndex];
+    if (targetCard) {
+        targetCard.classList.add('keyboard-focused');
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
 }
 
 function scrollTrack(delta) {
@@ -274,88 +243,29 @@ function renderFilteredWallpapers(wallpapers) {
     document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
 
     activeFilteredWallpapers = wallpapers;
-    lastStartIndex = -1;
-    lastEndIndex = -1;
     focusedCardIndex = -1;
-    if (track) track.scrollLeft = 0;
+    if (track) {
+        track.innerHTML = '';
+        track.scrollLeft = 0;
+    }
 
     if (wallpapers.length === 0) {
         if (track) track.innerHTML = '<div class="loading-msg">No wallpapers found...</div>';
-        mountedCards.clear();
         return;
     }
 
-    renderVirtualWindow(true);
-}
-
-function renderVirtualWindow(force = false) {
-    const track = document.getElementById('slices-track');
-    if (!track || !activeFilteredWallpapers.length) return;
-
-    let canvas = track.querySelector('.virtual-canvas');
-    if (!canvas) {
-        track.innerHTML = '';
-        canvas = document.createElement('div');
-        canvas.className = 'virtual-canvas';
-        track.appendChild(canvas);
-        mountedCards.clear();
-    }
-
-    const totalWidth = Math.max(0, activeFilteredWallpapers.length * ITEM_WIDTH - CARD_GAP);
-    canvas.style.width = `${totalWidth}px`;
-
-    const scrollLeft = track.scrollLeft;
-    const viewportWidth = track.clientWidth || window.innerWidth;
-
-    const visibleStartIndex = Math.floor(scrollLeft / ITEM_WIDTH);
-    const visibleEndIndex = Math.ceil((scrollLeft + viewportWidth) / ITEM_WIDTH);
-
-    const startIndex = Math.max(0, visibleStartIndex - OVERSCAN_BUFFER);
-    const endIndex = Math.min(activeFilteredWallpapers.length, visibleEndIndex + OVERSCAN_BUFFER);
-
-    if (!force && startIndex === lastStartIndex && endIndex === lastEndIndex) {
-        return;
-    }
-
-    lastStartIndex = startIndex;
-    lastEndIndex = endIndex;
-
-    const requiredIds = new Set();
-
-    for (let i = startIndex; i < endIndex; i++) {
-        const wall = activeFilteredWallpapers[i];
-        requiredIds.add(wall.id);
-
-        let card = mountedCards.get(wall.id);
-        if (!card) {
-            card = createCard(wall, i);
-            mountedCards.set(wall.id, card);
-            canvas.appendChild(card);
-        } else {
-            card.dataset.cardIndex = i;
-            if (i === focusedCardIndex) card.classList.add('keyboard-focused');
-            else card.classList.remove('keyboard-focused');
-        }
-
-        card.style.transform = `translateX(${i * ITEM_WIDTH}px)`;
-    }
-
-    // Keyed DOM Recycling: remove offscreen cards
-    for (const [id, card] of mountedCards) {
-        if (!requiredIds.has(id)) {
-            card.remove();
-            mountedCards.delete(id);
-        }
-    }
+    const frag = document.createDocumentFragment();
+    wallpapers.forEach((wall, index) => {
+        frag.appendChild(createCard(wall, index));
+    });
+    track.appendChild(frag);
 }
 
 function createCard(wall, cardIndex) {
     const card = document.createElement('div');
     const favoriteKey = wall.favoriteKey;
     const isFav = favoritePaths.has(favoriteKey);
-    const isFocused = cardIndex === focusedCardIndex;
-    card.className = `slice-card${isFav ? ' is-favorite' : ''}${isFocused ? ' keyboard-focused' : ''}`;
-    card.dataset.cardIndex = cardIndex;
+    card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
     card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
     const img = document.createElement('img');
@@ -454,10 +364,9 @@ function showDeleteDialog(wall, card) {
             allWallpapers = allWallpapers.filter(w => w.id !== wall.id);
             card.style.transition = `opacity ${CARD_FADE_DURATION}ms ease, transform ${CARD_FADE_DURATION}ms ease`;
             card.style.opacity = '0';
-            card.style.transform = 'scale(0.75) rotateY(-20deg)';
+            card.style.transform = 'scale(0.75)';
             setTimeout(() => {
                 card.remove();
-                mountedCards.delete(wall.id);
                 filterAndRender();
             }, CARD_FADE_DURATION + 20);
         }
