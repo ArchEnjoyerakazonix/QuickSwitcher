@@ -4,10 +4,9 @@
   },
   "ignore": {
     "useGitignore": true,
-    "useDefaultPatterns": false,
+    "useDefaultPatterns": true,
     "custom": [
-      "node_modules/**",
-      ".git/**",
+      "!package-lock.json",
       "assets/**"
     ]
   }
