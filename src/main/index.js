@@ -568,8 +568,37 @@ ipcMain.on('close-app', (event) => {
     app.quit();
 });
 
+async function installDesktopShortcut() {
+    if (process.platform !== 'linux') return;
+    try {
+        const appsDir = path.join(os.homedir(), '.local/share/applications');
+        await fsp.mkdir(appsDir, { recursive: true }).catch(() => {});
+        const desktopPath = path.join(appsDir, 'quickswitcher.desktop');
+
+        const execPath = process.execPath;
+        const mainScript = path.resolve(__dirname, '../../');
+        const iconPath = path.resolve(__dirname, '../../assets/icon.png');
+
+        const desktopContent = `[Desktop Entry]
+Name=QuickSwitcher
+GenericName=Wallpaper Switcher
+Comment=Hyper-minimalist GPU-accelerated wallpaper switcher
+Exec="${execPath}" "${mainScript}"
+Icon=${iconPath}
+Terminal=false
+Type=Application
+Categories=Utility;DesktopSettings;
+StartupWMClass=QuickSwitcher
+`;
+        await fsp.writeFile(desktopPath, desktopContent, { encoding: 'utf8', mode: 0o755 });
+    } catch (e) {
+        log.warn('Could not register desktop entry:', e.message);
+    }
+}
+
 app.whenReady().then(async () => {
     await initPaths();
+    await installDesktopShortcut();
     createWindow();
 });
 

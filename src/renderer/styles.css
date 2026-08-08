@@ -71,7 +71,7 @@ html, body {
 }
 
 #search-input {
-    background: rgba(17, 17, 27, 0.75);
+    background: rgba(17, 17, 27, 0.92);
     border: 1px solid rgba(137, 180, 250, 0.25);
     border-radius: 8px;
     padding: 0 10px;
@@ -82,7 +82,6 @@ html, body {
     font-family: 'Outfit', sans-serif;
     outline: none;
     width: 95px;
-    backdrop-filter: blur(8px);
     transition: all 0.2s ease;
     box-sizing: border-box;
 }
@@ -90,7 +89,7 @@ html, body {
 #search-input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 10px var(--accent-glow);
-    background: rgba(17, 17, 27, 0.95);
+    background: rgba(17, 17, 27, 0.98);
     width: 125px;
 }
 
@@ -105,7 +104,7 @@ html, body {
 }
 
 .sort-btn {
-    background: rgba(17, 17, 27, 0.85);
+    background: rgba(17, 17, 27, 0.92);
     border: 1px solid rgba(137, 180, 250, 0.3);
     border-radius: 8px;
     padding: 0 9px;
@@ -115,7 +114,6 @@ html, body {
     font-weight: 700;
     font-family: 'Outfit', sans-serif;
     cursor: pointer;
-    backdrop-filter: blur(8px);
     transition: all 0.15s ease;
     display: inline-flex;
     align-items: center;
@@ -133,7 +131,7 @@ html, body {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    background: rgba(17, 17, 27, 0.96);
+    background: rgba(17, 17, 27, 0.98);
     border: 1px solid rgba(137, 180, 250, 0.3);
     border-radius: 8px;
     padding: 4px;
@@ -142,7 +140,6 @@ html, body {
     gap: 2px;
     min-width: 130px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(16px);
     z-index: 200;
 }
 
@@ -212,7 +209,6 @@ html, body {
     height: 100%;
     display: flex;
     align-items: center;
-    /* Mask edges for smooth fade-out feel */
     -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
 }
@@ -228,7 +224,6 @@ html, body {
     scroll-behavior: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    will-change: scroll-position;
 }
 
 .slices-track::-webkit-scrollbar {
@@ -247,23 +242,21 @@ html, body {
     cursor: pointer;
     position: relative;
     flex-shrink: 0;
-    transform: rotateY(-10deg) rotateX(3deg);
-    transform-style: preserve-3d;
+    contain: layout paint style;
     transition:
-        transform 0.18s cubic-bezier(0.4,0,0.2,1),
+        transform 0.18s ease,
         border-color 0.18s ease,
         box-shadow 0.18s ease;
-    will-change: transform;
-    box-shadow: -6px 8px 18px rgba(0,0,0,0.6);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5);
 }
 
 .slice-card:hover,
 .slice-card.keyboard-focused {
-    transform: rotateY(0deg) rotateX(0deg) scale(1.08) translateY(-8px);
+    transform: translateY(-6px) scale(1.04);
     border-color: var(--accent);
     outline: 2px solid var(--accent);
     box-shadow:
-        0 16px 40px rgba(137,180,250,0.4),
+        0 14px 32px rgba(137,180,250,0.35),
         0 0 0 1px rgba(137,180,250,0.3);
     z-index: 20;
 }
@@ -273,7 +266,6 @@ html, body {
     height: 100%;
     object-fit: cover;
     display: block;
-    will-change: contents;
     image-rendering: auto;
 }
 
@@ -285,7 +277,7 @@ html, body {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: rgba(10, 12, 20, 0.85);
+    background: rgba(10, 12, 20, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: rgba(255, 255, 255, 0.4);
     font-size: 11px;
@@ -294,14 +286,13 @@ html, body {
     justify-content: center;
     cursor: pointer;
     z-index: 25;
-    backdrop-filter: blur(4px);
     transition: all 0.18s ease;
     user-select: none;
     line-height: 1;
 }
 
 .favorite-btn:hover {
-    background: rgba(17, 17, 27, 0.95);
+    background: rgba(17, 17, 27, 0.98);
     border-color: #f9e2af;
     color: #f9e2af;
     transform: scale(1.15);
@@ -310,7 +301,7 @@ html, body {
 
 .favorite-btn.active {
     color: #f9e2af;
-    background: rgba(249, 226, 175, 0.2);
+    background: rgba(249, 226, 175, 0.25);
     border-color: #f9e2af;
     text-shadow: 0 0 6px rgba(249, 226, 175, 0.8);
     box-shadow: 0 0 8px rgba(249, 226, 175, 0.4);
@@ -329,11 +320,10 @@ html, body {
     font-weight: 700;
     letter-spacing: 0.06em;
     color: var(--accent);
-    background: rgba(10,12,20,0.85);
+    background: rgba(10,12,20,0.92);
     border: 1px solid rgba(137,180,250,0.4);
     border-radius: 5px;
     padding: 2px 5px;
-    backdrop-filter: blur(4px);
 }
 
 .fmt-badge.video {
@@ -350,11 +340,10 @@ html, body {
     font-weight: 700;
     letter-spacing: 0.04em;
     color: var(--subtext);
-    background: rgba(10,12,20,0.85);
+    background: rgba(10,12,20,0.92);
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 5px;
     padding: 2px 4px;
-    backdrop-filter: blur(4px);
 }
 
 /* Hover overlay hint */

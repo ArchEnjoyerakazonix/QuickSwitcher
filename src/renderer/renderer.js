@@ -110,12 +110,16 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Instant no-lag wheel scroll
+    // Smooth, 60fps wheel scroll
     const wrapper = document.getElementById('slices-wrapper');
-    wrapper.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        document.getElementById('slices-track').scrollLeft += e.deltaY * WHEEL_MULTIPLIER;
-    }, { passive: false });
+    const track = document.getElementById('slices-track');
+    if (wrapper && track) {
+        wrapper.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            track.scrollLeft += delta;
+        }, { passive: false });
+    }
 }
 
 function setFocusedCard(index) {
