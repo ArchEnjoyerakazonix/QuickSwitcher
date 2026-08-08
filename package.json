@@ -1,6 +1,6 @@
 {
   "name": "quickswitcher",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Minimal GPU-accelerated wallpaper quickswitcher for Arch Linux & Hyprland",
   "main": "src/main/index.js",
   "scripts": {
@@ -21,6 +21,6 @@
   "author": "ArchEnjoyerakazonix",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^34.0.0"
+    "electron": "^34.5.8"
   }
 }

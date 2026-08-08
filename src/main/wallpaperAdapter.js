@@ -1,9 +1,22 @@
-const { execFile, execFileSync } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { promisify } = require('util');
+const { pathToFileURL } = require('url');
 
 const pExecFile = promisify(execFile);
+
+// Track PIDs of mpvpaper instances launched by QuickSwitcher (P1 Fix)
+const ownedMpvpaperPids = new Set();
+
+function stopOwnedMpvpaper() {
+    for (const pid of ownedMpvpaperPids) {
+        try {
+            process.kill(pid, 'SIGTERM');
+        } catch {}
+        ownedMpvpaperPids.delete(pid);
+    }
+}
 
 /**
  * Universal Cross-Platform Wallpaper Adapter
@@ -12,15 +25,17 @@ const pExecFile = promisify(execFile);
 async function applyWallpaperUniversal(filepath, options = {}) {
     const { setWallScript, monitors = [], ws = 1 } = options;
 
-    // 1. PRIMARY PRIORITY: If ArchEclipse set-wallpaper.sh script exists, use it! (User System)
+    // 1. PRIMARY PRIORITY: If ArchEclipse set-wallpaper.sh script exists, use it!
     if (setWallScript && fs.existsSync(setWallScript)) {
         const monList = monitors.length ? monitors : ['DP-2'];
-        for (const mon of monList) {
-            execFile('bash', [setWallScript, String(ws), mon, filepath], (err) => {
-                if (err) console.warn('[QuickSwitcher] set-wallpaper.sh error:', err.message);
-            });
+        try {
+            await Promise.all(
+                monList.map(mon => pExecFile('bash', [setWallScript, String(ws), mon, filepath], { timeout: 10000 }))
+            );
+            return { ok: true, backend: 'ArchEclipse (set-wallpaper.sh)' };
+        } catch (e) {
+            return { ok: false, backend: 'ArchEclipse', error: e.message };
         }
-        return { ok: true, backend: 'ArchEclipse (set-wallpaper.sh)' };
     }
 
     const ext = path.extname(filepath).toLowerCase();
@@ -28,27 +43,42 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     const platform = process.platform;
     const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
 
-    // 2. VIDEO HANDLING FOR WAYLAND / LINUX
+    // 2. VIDEO HANDLING FOR WAYLAND / LINUX (P1 Fix: Safe tracked process management)
     if (isVideo) {
         if (platform !== 'linux') {
             return { ok: false, backend: null, error: `Video wallpapers are not supported natively on ${platform}` };
         }
-        // Prevent process leak: reap previous mpvpaper instances
-        try {
-            execFileSync('pkill', ['-x', 'mpvpaper'], { timeout: 2000, stdio: 'ignore' });
-        } catch (e) { /* none running */ }
+
+        stopOwnedMpvpaper();
 
         const monList = monitors.length ? monitors : ['*'];
-        for (const mon of monList) {
-            const child = execFile('mpvpaper', ['-f', '-o', 'no-audio --loop-file=inf --panscan=1.0 --hwdec=auto', mon, filepath], (err) => {
-                if (err) console.warn('[QuickSwitcher] mpvpaper error:', err.message);
-            });
-            if (child.unref) child.unref();
+        try {
+            await Promise.all(monList.map(mon => {
+                return new Promise((resolve, reject) => {
+                    const child = spawn(
+                        'mpvpaper',
+                        ['-f', '-o', 'no-audio --loop-file=inf --panscan=1.0 --hwdec=auto', mon, filepath],
+                        { detached: true, stdio: 'ignore' }
+                    );
+
+                    child.once('error', reject);
+                    child.once('spawn', () => {
+                        ownedMpvpaperPids.add(child.pid);
+                        child.unref();
+                        resolve(child.pid);
+                    });
+                });
+            }));
+            return { ok: true, backend: 'mpvpaper' };
+        } catch (e) {
+            return { ok: false, backend: 'mpvpaper', error: e.message };
         }
-        return { ok: true, backend: 'mpvpaper' };
     }
 
-    // 3. WINDOWS PLATFORM (S2 Fix: Safe env variable passing & no PowerShell double-quote string injection)
+    // Stop any video wallpapers when switching to a static image
+    stopOwnedMpvpaper();
+
+    // 3. WINDOWS PLATFORM (P1 Fix: Validate SystemParametersInfo return code)
     if (platform === 'win32') {
         const psScript = `
 $code = @'
@@ -59,7 +89,10 @@ public class Wallpaper {
 }
 '@
 Add-Type -TypeDefinition $code
-[Wallpaper]::SystemParametersInfo(0x0014, 0, $env:QS_WALLPAPER_PATH, 0x0001 -bor 0x0002)
+$ok = [Wallpaper]::SystemParametersInfo(0x0014, 0, $env:QS_WALLPAPER_PATH, 0x0001 -bor 0x0002)
+if (-not $ok) {
+    throw "SystemParametersInfoW returned 0"
+}
 `;
         try {
             await pExecFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
@@ -71,7 +104,7 @@ Add-Type -TypeDefinition $code
         }
     }
 
-    // 4. MACOS PLATFORM (S1 Fix: Safe parameter array passing with on run argv)
+    // 4. MACOS PLATFORM
     if (platform === 'darwin') {
         const script = `
 on run argv
@@ -92,19 +125,19 @@ end run`;
 
     // 5. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE)
     if (desktop.includes('GNOME') || desktop.includes('CINNAMON') || desktop.includes('MATE')) {
-        const safeUri = 'file://' + encodeURI(filepath).replace(/#/g, '%23');
+        const safeUri = pathToFileURL(filepath).href;
         const schema = desktop.includes('MATE') ? 'org.mate.background' :
                        desktop.includes('CINNAMON') ? 'org.cinnamon.desktop.background' :
                        'org.gnome.desktop.background';
-        execFile('gsettings', ['set', schema, 'picture-uri', safeUri], (err) => {
-            if (err) console.warn('[QuickSwitcher] gsettings picture-uri error:', err.message);
-        });
-        if (desktop.includes('GNOME')) {
-            execFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], (err) => {
-                if (err) console.warn('[QuickSwitcher] gsettings picture-uri-dark error:', err.message);
-            });
+        try {
+            await pExecFile('gsettings', ['set', schema, 'picture-uri', safeUri]);
+            if (desktop.includes('GNOME')) {
+                await pExecFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri]).catch(() => {});
+            }
+            return { ok: true, backend: `Linux (${desktop})` };
+        } catch (e) {
+            return { ok: false, backend: 'gsettings', error: e.message };
         }
-        return { ok: true, backend: `Linux (${desktop})` };
     }
 
     if (desktop.includes('KDE')) {
@@ -117,43 +150,31 @@ end run`;
     }
 
     if (desktop.includes('XFCE')) {
-        execFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 }, (err, stdout) => {
-            if (!err && stdout) {
-                const props = stdout.split('\n').filter(l => l.trim().endsWith('/last-image'));
-                for (const prop of props) {
-                    execFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop.trim(), '-s', filepath], (e) => {
-                        if (e) console.warn('[QuickSwitcher] xfconf-query error:', e.message);
-                    });
-                }
-            }
-        });
-        return { ok: true, backend: 'XFCE' };
+        try {
+            const { stdout } = await pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 });
+            const props = stdout.split('\n').map(s => s.trim()).filter(l => l.endsWith('/last-image'));
+            if (props.length === 0) throw new Error('No XFCE wallpaper properties found');
+            await Promise.all(props.map(prop => pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop, '-s', filepath])));
+            return { ok: true, backend: 'XFCE' };
+        } catch (e) {
+            return { ok: false, backend: 'XFCE', error: e.message };
+        }
     }
 
     // 6. HYPRLAND / WAYLAND / X11 FALLBACKS
-    // Try SWWW first
     try {
-        execFileSync('swww', ['query'], { timeout: 1000, stdio: 'ignore' });
+        await pExecFile('swww', ['query'], { timeout: 1000 });
         await pExecFile('swww', ['img', filepath]);
         return { ok: true, backend: 'swww' };
     } catch (e) { /* swww not active */ }
 
-    // Try Hyprpaper (Unload old VRAM + Preload new + Set)
     try {
-        try {
-            execFileSync('hyprctl', ['hyprpaper', 'unload', 'all'], { timeout: 2000, stdio: 'ignore' });
-        } catch (e) { /* ignore */ }
-
-        execFileSync('hyprctl', ['hyprpaper', 'preload', filepath], { timeout: 5000, stdio: 'ignore' });
+        await pExecFile('hyprctl', ['hyprpaper', 'unload', 'all'], { timeout: 2000 }).catch(() => {});
+        await pExecFile('hyprctl', ['hyprpaper', 'preload', filepath], { timeout: 5000 });
         const monList = monitors.length ? monitors : [''];
-        for (const mon of monList) {
-            execFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`], (err) => {
-                if (err) console.warn('[QuickSwitcher] hyprpaper wallpaper error:', err.message);
-            });
-        }
+        await Promise.all(monList.map(mon => pExecFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`])));
         return { ok: true, backend: 'hyprpaper' };
     } catch (err) {
-        // Fallback to feh for X11 / i3 / bspwm
         try {
             await pExecFile('feh', ['--bg-fill', filepath]);
             return { ok: true, backend: 'feh' };
@@ -163,4 +184,4 @@ end run`;
     }
 }
 
-module.exports = { applyWallpaperUniversal };
+module.exports = { applyWallpaperUniversal, stopOwnedMpvpaper };

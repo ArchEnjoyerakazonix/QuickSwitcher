@@ -60,9 +60,8 @@ function setupControls() {
             if (e.key === 'Enter' || e.key === 'ArrowDown') {
                 searchInput.blur();
                 setFocusedCard(0);
-                return;
             }
-            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') return;
+            return; // Do not trigger card navigation while typing in search
         }
 
         if (e.key === 'ArrowRight' || e.key === 'l') {
@@ -232,7 +231,7 @@ function createCard(wall) {
     img.className = 'preview-media';
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.src = `file://${wall.thumb}`;
+    img.src = wall.thumbUrl || `file://${wall.thumb}`;
     img.dataset.thumbTarget = wall.thumbPath || wall.thumb;
 
     const favBtn = document.createElement('div');
@@ -274,14 +273,21 @@ function createCard(wall) {
     card.appendChild(badge);
     if (wall.sizeFormatted) card.appendChild(sizeBadge);
 
-    // apply (A3 Fix: Only close if backend apply succeeded)
+    // apply (A3 Fix: Guard against multiple clicks)
+    let isApplying = false;
     card.addEventListener('click', async () => {
+        if (isApplying) return;
+        isApplying = true;
         card.style.outline = '2px solid #89b4fa';
-        const res = await window.wallpaperAPI.apply(wall.path);
-        if (res && res.ok) {
-            setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
-        } else {
-            card.style.outline = '2px solid #f38ba8';
+        try {
+            const res = await window.wallpaperAPI.apply(wall.path);
+            if (res && res.ok) {
+                setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
+            } else {
+                card.style.outline = '2px solid #f38ba8';
+            }
+        } finally {
+            isApplying = false;
         }
     });
 
@@ -336,8 +342,7 @@ function showDeleteDialog(wall, card) {
             card.style.transform = 'scale(0.75) rotateY(-20deg)';
             setTimeout(() => {
                 card.remove();
-                const wallCount = document.getElementById('wall-count');
-                if (wallCount) wallCount.textContent = `${allWallpapers.length} wallpapers`;
+                filterAndRender();
             }, CARD_FADE_DURATION + 20);
         }
     });

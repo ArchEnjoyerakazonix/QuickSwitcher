@@ -1,6 +1,6 @@
-# ⚡ QuickSwitcher
+# ⚡ QuickSwitcher (v1.1.2)
 
-> A hyper-minimalist, GPU-accelerated wallpaper switcher built for Linux ricing enthusiasts. Seamlessly integrated with Hyprland, X11, and major DEs.
+> A hyper-minimalist, GPU-accelerated wallpaper switcher built for Linux ricing enthusiasts & cross-platform desktops. Seamlessly integrated with Hyprland, X11, KDE, GNOME, Windows, and macOS.
 
 **Why Electron?** Instant startup isn't the goal — instant *switching* is.
 The window is a transient overlay (single-instance lock, ~300px strip);
@@ -9,12 +9,12 @@ the heavy lifting (scan, thumbnails, daemon calls) is fully async.
 ## ✨ Features
 
 - 🚀 **Instant Launch**: Bottom-docked floating strip that opens & closes without lag.
-- 🎴 **Interactive Slices**: 3D perspective cards for static wallpapers (`.png`, `.jpg`, `.webp`, `.gif`) and dynamic videos (`.mp4`, `.webm`).
-- ⚡ **Non-blocking Async Thumbnailing**: Progressive loading powered by Electron `nativeImage` and background `ffmpeg`.
-- 🔒 **Enterprise Security**: Context isolation, sandboxed IPC, and path traversal protection.
-- 🌐 **Universal Cross-Platform**: Native support for ArchEclipse (`set-wallpaper.sh`), vanilla Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME (`gsettings`), KDE Plasma (`plasma-apply-wallpaperimage`), Windows (`user32.dll`), and macOS (`AppleScript`).
+- 🎴 **Interactive Slices**: 3D perspective cards for static wallpapers (`.png`, `.jpg`, `.webp`, `.gif`) and dynamic videos (`.mp4`, `.webm` on Linux via `mpvpaper`).
+- ⚡ **Bounded Async Thumbnailing**: Progressive video frame extraction with max-concurrency bounds.
+- 🔒 **Enterprise Security**: Context isolation, sandboxed IPC, sender validation, path traversal protection, and safe symlink entry deletion (preserving original target files).
+- 🌐 **Universal Cross-Platform**: Native support for ArchEclipse (`set-wallpaper.sh`), vanilla Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME (`gsettings`), KDE Plasma (`plasma-apply-wallpaperimage`), XFCE (`xfconf-query`), Windows (`SystemParametersInfoW`), and macOS (`AppleScript`).
 - 🗑️ **Quick Delete & Favorites**: Star your top wallpapers and right-click to delete unwanted files & cached thumbnails.
-- ⌨️ **Full Keyboard & Mouse Controls**: Seamless navigation with `hjkl` or arrow keys, `/` to search, `Enter` to apply.
+- ⌨️ **Keyboard & Mouse Controls**: Navigation with `h`/`l` or arrow keys, `/` to search, `Enter` to apply.
 
 ---
 
@@ -67,7 +67,7 @@ windowrulev2 = move 0 100%-300, title:^(QuickSwitcher)$
 
 ## ⚡ Optional Thumbnail Generator
 
-Pre-generate video and image thumbnails for instant caching:
+Pre-generate video and image thumbnails for instant caching (Linux):
 
 ```bash
 chmod +x scripts/generate-thumbs.sh
