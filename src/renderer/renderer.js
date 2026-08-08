@@ -110,14 +110,31 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Smooth, 60fps wheel scroll
+    // Smooth 144 FPS spring wheel scroll
     const wrapper = document.getElementById('slices-wrapper');
     const track = document.getElementById('slices-track');
     if (wrapper && track) {
+        let targetScrollLeft = track.scrollLeft;
+        let animFrameId = null;
+
+        function smoothScrollStep() {
+            const diff = targetScrollLeft - track.scrollLeft;
+            if (Math.abs(diff) > 0.5) {
+                track.scrollLeft += diff * 0.25;
+                animFrameId = requestAnimationFrame(smoothScrollStep);
+            } else {
+                track.scrollLeft = targetScrollLeft;
+                animFrameId = null;
+            }
+        }
+
         wrapper.addEventListener('wheel', (e) => {
             e.preventDefault();
             const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            track.scrollLeft += delta;
+            targetScrollLeft = Math.max(0, Math.min(track.scrollWidth - track.clientWidth, targetScrollLeft + delta * 1.2));
+            if (!animFrameId) {
+                animFrameId = requestAnimationFrame(smoothScrollStep);
+            }
         }, { passive: false });
     }
 }
