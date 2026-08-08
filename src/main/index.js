@@ -434,9 +434,13 @@ ipcMain.handle('apply-wallpaper', async (event, payload) => {
         queueJsonWrite(STATE_FILE, { activeWallpaperPath: record.targetPath }).catch(error => {
             log.warn('Failed to persist active wallpaper:', error.message);
         });
-        execFile('notify-send', ['QuickSwitcher', `Applied: ${record.name}`], () => {});
+        if (process.platform === 'linux') {
+            execFile('notify-send', ['QuickSwitcher', `Applied: ${record.name}`], () => {});
+        }
     } else {
-        execFile('notify-send', ['-u', 'critical', 'QuickSwitcher', result.error || 'Failed to set wallpaper'], () => {});
+        if (process.platform === 'linux') {
+            execFile('notify-send', ['-u', 'critical', 'QuickSwitcher', result.error || 'Failed to set wallpaper'], () => {});
+        }
     }
     return result;
 });

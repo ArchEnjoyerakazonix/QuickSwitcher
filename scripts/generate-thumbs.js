@@ -39,7 +39,7 @@ async function run() {
 
     let count = 0;
     const EXTS = new Set(['.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp', '.gif']);
-    const VIDEO_EXTS = new Set(['.mp4', '.webm']);
+    const VIDEO_EXTS = new Set(['.mp4', '.webm', '.gif']);
 
     for (const dir of uniqueDirs) {
         let entries;
