@@ -169,12 +169,9 @@ function detectMonitors() {
         const names = [...out.matchAll(/^(\S+)/gm)].map(m => m[1]);
         if (names.length) return names;
     } catch (e) {}
-    try {
-        return screen.getAllDisplays().map((_, idx) => `display-${idx}`);
-    } catch {
-        return [];
-    }
+    return [];
 }
+
 
 let mainWindow = null;
 
@@ -325,6 +322,7 @@ ipcMain.handle('get-wallpapers', async () => {
                     name: ent.name,
                     path: resolved,
                     thumb,
+                    thumbPath,
                     type: isVideo ? 'VIDEO' : 'IMAGE',
                     ext: ext.slice(1).toUpperCase(),
                     size: stat.size,

@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# thumbnail generator
+# High-speed offline thumbnail generator for QuickSwitcher
 set -euo pipefail
 
-THUMB_DIR="$HOME/.cache/wallpaper_hub_thumbs"
+THUMB_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/quickswitcher-thumbs"
 mkdir -p "$THUMB_DIR"
+
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/QuickSwitcher/custom_folders.json"
 
 DIRS=(
     "$HOME/Pictures/wallpapers"
     "$HOME/Pictures/Wallpapers"
+    "$HOME/Pictures/Wallpapers/Dynamic-Wallpapers"
     "$HOME/dotfiles/wallpapers"
     "$HOME/.config/wallpapers"
 )
+
+if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
+    while IFS= read -r cdir; do
+        [ -n "$cdir" ] && DIRS+=("$cdir")
+    done < <(jq -r '.[]' "$CONFIG_FILE" 2>/dev/null || true)
+fi
 
 export MAGICK_MEMORY_LIMIT="256MiB"
 export MAGICK_MAP_LIMIT="512MiB"
@@ -27,18 +36,23 @@ for dir in "${DIRS[@]}"; do
 
         case "${ext,,}" in
             mp4|webm)
-                ffmpeg -threads 2 -y -ss 2 -i "$f" -vframes 1 \
-                    -vf "scale=160:260:force_original_aspect_ratio=increase,crop=160:260" \
-                    -q:v 4 "$thumb" 2>/dev/null && count=$((count+1))
+                if ffmpeg -threads 2 -y -ss 2 -i "$f" -vframes 1 \
+                    -vf "scale=260:-1" \
+                    -q:v 4 "$thumb" 2>/dev/null; then
+                    count=$((count+1))
+                    echo "✓ $(basename "$f")"
+                fi
                 ;;
             jpg|jpeg|png|webp)
-                magick -limit memory 256MiB -limit map 512MiB "$f" -thumbnail "160x260^" -gravity center \
-                    -extent 160x260 -quality 80 "$thumb" 2>/dev/null && count=$((count+1))
+                if magick -limit memory 256MiB -limit map 512MiB "$f" -thumbnail "260x>" \
+                    -quality 80 "$thumb" 2>/dev/null; then
+                    count=$((count+1))
+                    echo "✓ $(basename "$f")"
+                fi
                 ;;
         esac
-        echo "✓ $(basename "$f")"
     done < <(find "$dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.webm" \) -print0)
 done
 
 echo "Done — $count new thumbnails generated"
-echo "Total: $(ls "$THUMB_DIR" | wc -l) thumbs cached"
+echo "Total: $(ls "$THUMB_DIR" | wc -l) thumbs cached in $THUMB_DIR"

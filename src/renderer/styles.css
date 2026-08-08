@@ -258,9 +258,11 @@ html, body {
     box-shadow: -6px 8px 18px rgba(0,0,0,0.6);
 }
 
-.slice-card:hover {
+.slice-card:hover,
+.slice-card.keyboard-focused {
     transform: rotateY(0deg) rotateX(0deg) scale(1.08) translateY(-8px);
     border-color: var(--accent);
+    outline: 2px solid var(--accent);
     box-shadow:
         0 16px 40px rgba(137,180,250,0.4),
         0 0 0 1px rgba(137,180,250,0.3);

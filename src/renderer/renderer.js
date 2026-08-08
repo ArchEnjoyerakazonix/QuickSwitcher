@@ -233,7 +233,7 @@ function createCard(wall) {
     img.loading = 'lazy';
     img.decoding = 'async';
     img.src = `file://${wall.thumb}`;
-    img.dataset.thumbTarget = wall.thumb;
+    img.dataset.thumbTarget = wall.thumbPath || wall.thumb;
 
     const favBtn = document.createElement('div');
     favBtn.className = `favorite-btn${isFav ? ' active' : ''}`;
