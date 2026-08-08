@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('wallpaperAPI', {
     remove: (filepath) => ipcRenderer.invoke('delete-wallpaper', { filepath }),
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
     toggleFavorite: (filepath) => ipcRenderer.invoke('toggle-favorite', { filepath }),
+    selectFolder: () => ipcRenderer.invoke('select-folder'),
     close: () => ipcRenderer.send('close-app'),
 });

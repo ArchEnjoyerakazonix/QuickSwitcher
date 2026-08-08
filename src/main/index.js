@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const os = require('os');
+const { applyWallpaperUniversal } = require('./wallpaperAdapter');
 
 // perf
 app.commandLine.appendSwitch('enable-gpu-rasterization');
@@ -12,19 +13,42 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('disable-gpu-vsync');
 app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
 
-const WALL_DIRS = [
-    path.join(process.env.HOME, 'Pictures/wallpapers'),
-    path.join(process.env.HOME, 'Pictures/Wallpapers'),
-    path.join(process.env.HOME, 'Pictures/Wallpapers/Dynamic-Wallpapers'),
-    path.join(process.env.HOME, 'dotfiles/wallpapers'),
-    path.join(process.env.HOME, '.config/wallpapers'),
-];
-
 const THUMB_DIR = path.join(os.homedir(), '.cache/wallpaper_hub_thumbs');
-const SET_WALL_SCRIPT = path.join(process.env.HOME, '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
+const SET_WALL_SCRIPT = path.join(os.homedir(), '.config/hypr/wallpaper-daemon/set-wallpaper.sh');
 const FAV_FILE = path.join(THUMB_DIR, 'favorites.json');
+const CUSTOM_FOLDERS_FILE = path.join(THUMB_DIR, 'custom_folders.json');
 
 if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+
+function loadCustomFolders() {
+    try {
+        if (fs.existsSync(CUSTOM_FOLDERS_FILE)) {
+            const data = JSON.parse(fs.readFileSync(CUSTOM_FOLDERS_FILE, 'utf-8'));
+            if (Array.isArray(data)) return data;
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveCustomFolders(foldersArray) {
+    try {
+        fs.writeFileSync(CUSTOM_FOLDERS_FILE, JSON.stringify(foldersArray, null, 2), 'utf-8');
+    } catch (e) {}
+}
+
+function getWallpaperDirectories() {
+    const defaultDirs = [
+        path.join(os.homedir(), 'Pictures/wallpapers'),
+        path.join(os.homedir(), 'Pictures/Wallpapers'),
+        path.join(os.homedir(), 'Pictures/Wallpapers/Dynamic-Wallpapers'),
+        path.join(os.homedir(), 'dotfiles/wallpapers'),
+        path.join(os.homedir(), '.config/wallpapers'),
+    ];
+    const custom = loadCustomFolders();
+    const merged = [...defaultDirs, ...custom];
+    const unique = new Set(merged.filter(d => typeof d === 'string' && d.length > 0));
+    return Array.from(unique);
+}
 
 function loadFavorites() {
     try {
@@ -55,7 +79,8 @@ function resolveAllowedWallpaper(filepath) {
     } catch {
         return null;
     }
-    const allowed = WALL_DIRS.some(dir => {
+    const wallDirs = getWallpaperDirectories();
+    const allowed = wallDirs.some(dir => {
         if (!fs.existsSync(dir)) return false;
         try {
             const root = fs.realpathSync(dir);
@@ -73,6 +98,8 @@ function resolveAllowedWallpaper(filepath) {
     return allowed ? resolved : null;
 }
 
+let mainWindow = null;
+
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width: sysW, height: sysH } = primaryDisplay.bounds;
@@ -80,10 +107,10 @@ function createWindow() {
     const WIN_W = sysW;
     const WIN_H = 300;
 
-    const logoPath = path.join(__dirname, 'icon.png');
+    const logoPath = path.join(__dirname, '../../assets/icon.png');
     const icon = fs.existsSync(logoPath) ? nativeImage.createFromPath(logoPath) : undefined;
 
-    const win = new BrowserWindow({
+    mainWindow = new BrowserWindow({
         width: WIN_W,
         height: WIN_H,
         x: 0,
@@ -95,7 +122,7 @@ function createWindow() {
         icon,
         title: 'QuickSwitcher',
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, '../preload/index.js'),
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
@@ -104,7 +131,7 @@ function createWindow() {
         }
     });
 
-    win.loadFile('index.html');
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 }
 
 function ensureThumbnail(fullPath, thumbPath, isVideo) {
@@ -132,7 +159,8 @@ function formatBytes(bytes) {
 
 ipcMain.handle('get-wallpapers', async () => {
     let files = [];
-    for (const dir of WALL_DIRS) {
+    const wallDirs = getWallpaperDirectories();
+    for (const dir of wallDirs) {
         if (fs.existsSync(dir)) {
             try {
                 const list = fs.readdirSync(dir);
@@ -191,32 +219,33 @@ ipcMain.handle('apply-wallpaper', async (_event, { filepath }) => {
         ws = JSON.parse(out).id ?? 1;
     } catch { /* default ws=1 */ }
 
-    if (fs.existsSync(SET_WALL_SCRIPT)) {
-        for (const mon of monitors) {
-            execFile('bash', [SET_WALL_SCRIPT, String(ws), mon, filepath]);
-        }
-    } else {
-        const ext = path.extname(filepath).toLowerCase();
-        const isVideo = ['.mp4', '.webm'].includes(ext);
-
-        if (isVideo) {
-            for (const mon of monitors) {
-                execFile('mpvpaper', ['-o', 'no-audio loop', mon, filepath]);
-            }
-        } else {
-            try {
-                execFileSync('swww', ['query'], { timeout: 1000 });
-                execFile('swww', ['img', filepath]);
-            } catch {
-                for (const mon of monitors) {
-                    execFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`]);
-                }
-            }
-        }
-    }
+    // Execute universal adapter (Priority 1 is SET_WALL_SCRIPT, preserving your exact setup)
+    applyWallpaperUniversal(filepath, {
+        setWallScript: SET_WALL_SCRIPT,
+        monitors,
+        ws
+    });
 
     execFile('notify-send', ['QuickSwitcher', `Wallpaper applied: ${path.basename(filepath)}`]);
     return true;
+});
+
+ipcMain.handle('select-folder', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Select Custom Wallpaper Directory'
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+        const selectedDir = result.filePaths[0];
+        const custom = loadCustomFolders();
+        if (!custom.includes(selectedDir)) {
+            custom.push(selectedDir);
+            saveCustomFolders(custom);
+        }
+        return selectedDir;
+    }
+    return null;
 });
 
 ipcMain.handle('delete-wallpaper', async (_event, { filepath }) => {
