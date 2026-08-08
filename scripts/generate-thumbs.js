@@ -4,24 +4,9 @@ const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { CONFIG_DIR, THUMB_DIR, CUSTOM_FOLDERS_FILE } = require('../src/main/appPaths');
-
-function getThumbPath(thumbDir, targetPath, stat) {
-    const fingerprint = [
-        targetPath,
-        stat.size,
-        Math.trunc(stat.mtimeMs)
-    ].join('\0');
-
-    const hash = crypto
-        .createHash('sha256')
-        .update(fingerprint)
-        .digest('hex');
-
-    return path.join(thumbDir, `${hash}.jpg`);
-}
+const { getThumbPath } = require('../src/main/thumbnailPolicy');
 
 async function loadCustomFolders() {
     try {

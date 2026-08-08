@@ -5,8 +5,8 @@
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/index.js && node --check src/main/wallpaperAdapter.js && node --check src/preload/index.js && node --check src/renderer/renderer.js && node --check scripts/generate-thumbs.js && node --check src/main/appPaths.js && node --check src/main/store.js && node --check src/main/ipcValidation.js && node --check src/main/wallpaperInventory.js && node --check src/main/mpvpaperManager.js",
-    "test": "node --test",
+    "check": "node --check src/main/index.js && node --check src/main/wallpaperAdapter.js && node --check src/preload/index.js && node --check src/renderer/renderer.js && node --check scripts/generate-thumbs.js && node --check src/main/appPaths.js && node --check src/main/store.js && node --check src/main/ipcValidation.js && node --check src/main/wallpaperInventory.js && node --check src/main/mpvpaperManager.js && node --check src/main/pathPolicy.js && node --check src/main/thumbnailPolicy.js",
+    "test": "node --test --experimental-test-coverage",
     "verify": "npm run check && npm test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
@@ -27,7 +27,7 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^34.5.8",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.archenjoyer.quickswitcher",

@@ -214,6 +214,26 @@ let activeFFmpegJobs = 0;
 const ffmpegQueue = [];
 const pendingThumbs = new Map();
 
+function enqueueFFmpegJob(jobFn) {
+    return new Promise((resolve, reject) => {
+        ffmpegQueue.push({ jobFn, resolve, reject });
+        pumpFFmpegQueue();
+    });
+}
+
+function pumpFFmpegQueue() {
+    while (activeFFmpegJobs < MAX_CONCURRENT_FFMPEG && ffmpegQueue.length > 0) {
+        const { jobFn, resolve, reject } = ffmpegQueue.shift();
+        activeFFmpegJobs++;
+        jobFn()
+            .then(resolve, reject)
+            .finally(() => {
+                activeFFmpegJobs--;
+                pumpFFmpegQueue();
+            });
+    }
+}
+
 function subscribeThumbnail(thumbPath, wallpaperId) {
     let entry = pendingThumbs.get(thumbPath);
     if (!entry) {
@@ -261,7 +281,7 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
 
         if (!isVideo) {
             entry.running = false;
-            notifyThumbnailSubscribers(thumbPath);
+            pendingThumbs.delete(thumbPath);
             return targetPath;
         } else {
             enqueueFFmpegJob(() => {
@@ -289,9 +309,14 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
                                 const stat2 = await fsp.stat(thumbPath);
                                 if (!err2 && stat2.size > 0) {
                                     notifyThumbnailSubscribers(thumbPath);
+                                    resolve(thumbPath);
+                                    return;
                                 }
                             } catch {}
-                            resolve(thumbPath);
+
+                            // Failure: release subscribers so a future scan can retry
+                            pendingThumbs.delete(thumbPath);
+                            resolve(targetPath);
                         });
                     });
                 });
