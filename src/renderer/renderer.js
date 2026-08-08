@@ -137,15 +137,16 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Pure Native Passive Wheel Scroll (0 JS Blocking)
+    // Horizontal Wheel Scroll Translation
     const wrapper = document.getElementById('slices-wrapper');
     const track = document.getElementById('slices-track');
     if (wrapper && track) {
         wrapper.addEventListener('wheel', (e) => {
-            if (e.deltaY !== 0) {
-                track.scrollLeft += e.deltaY;
+            if (e.deltaY !== 0 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                e.preventDefault();
+                track.scrollBy({ left: e.deltaY * 1.5, behavior: 'auto' });
             }
-        }, { passive: true });
+        }, { passive: false });
     }
 }
 
