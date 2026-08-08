@@ -32,7 +32,8 @@ for dir in "${DIRS[@]}"; do
         ext="${f##*.}"
         hash=$(echo -n "$(realpath "$f")" | md5sum | cut -d' ' -f1)
         thumb="$THUMB_DIR/${hash}.jpg"
-        [ -f "$thumb" ] && continue
+        [ -s "$thumb" ] && continue
+        rm -f "$thumb" 2>/dev/null || true
 
         case "${ext,,}" in
             mp4|webm)
@@ -51,7 +52,7 @@ for dir in "${DIRS[@]}"; do
                 fi
                 ;;
         esac
-    done < <(find "$dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.webm" \) -print0)
+    done < <(find -L "$dir" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.webm" \) -print0)
 done
 
 echo "Done — $count new thumbnails generated"

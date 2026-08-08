@@ -232,7 +232,13 @@ function notifyThumbReady(thumbPath) {
 }
 
 async function ensureThumbnailAsync(fullPath, thumbPath, isVideo) {
-    if (fs.existsSync(thumbPath)) return thumbPath;
+    if (fs.existsSync(thumbPath)) {
+        try {
+            const stat = fs.statSync(thumbPath);
+            if (stat.size > 0) return thumbPath;
+            fs.unlinkSync(thumbPath);
+        } catch {}
+    }
 
     if (!pendingThumbs.has(thumbPath)) {
         pendingThumbs.add(thumbPath);
