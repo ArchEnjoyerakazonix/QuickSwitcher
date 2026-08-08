@@ -206,13 +206,13 @@ async function mapLimit(items, limit, worker) {
     return results;
 }
 
-// Bounded Concurrency Queue for Video Thumbnails
-const MAX_CONCURRENT_FFMPEG = 2;
+// Bounded Concurrency Queue for Video & Image Thumbnails
+const MAX_CONCURRENT_FFMPEG = 4;
 let activeFFmpegJobs = 0;
 const ffmpegQueue = [];
 const pendingThumbs = new Map();
 
-function enqueueFFmpegJob(jobFn) {
+function enqueueThumbnailJob(jobFn) {
     return new Promise((resolve, reject) => {
         ffmpegQueue.push({ jobFn, resolve, reject });
         pumpFFmpegQueue();
@@ -263,12 +263,29 @@ function notifyThumbReady(wallpaperId, thumbPath) {
     }
 }
 
-async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo) {
+async function generateImageThumbnailNative(targetPath, thumbPath) {
+    try {
+        const img = nativeImage.createFromPath(targetPath);
+        if (!img.isEmpty()) {
+            const size = img.getSize();
+            if (size.width > 0 && size.height > 0) {
+                const resized = img.resize({ width: 320, quality: 'better' });
+                const jpegBuffer = resized.toJPEG(80);
+                if (jpegBuffer && jpegBuffer.length > 0) {
+                    await fsp.writeFile(thumbPath, jpegBuffer);
+                    return true;
+                }
+            }
+        }
+    } catch (e) {}
+    return false;
+}
+
+function ensureThumbnailSyncFast(wallpaperId, targetPath, thumbPath, isVideo) {
     if (fs.existsSync(thumbPath)) {
         try {
-            const stat = await fsp.stat(thumbPath);
+            const stat = fs.statSync(thumbPath);
             if (stat.size > 0) return thumbPath;
-            await fsp.unlink(thumbPath).catch(() => {});
         } catch {}
     }
 
@@ -277,18 +294,23 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
     if (!entry.running) {
         entry.running = true;
 
-        if (!isVideo) {
-            entry.running = false;
-            pendingThumbs.delete(thumbPath);
-            return targetPath;
-        } else {
-            enqueueFFmpegJob(() => {
-                return new Promise((resolve) => {
+        enqueueThumbnailJob(() => {
+            return new Promise(async (resolve) => {
+                try {
+                    if (!isVideo) {
+                        const success = await generateImageThumbnailNative(targetPath, thumbPath);
+                        if (success) {
+                            notifyThumbnailSubscribers(thumbPath);
+                            resolve(thumbPath);
+                            return;
+                        }
+                    }
+
                     const ffmpegArgs = [
-                        '-threads', '2', '-y', '-ss', '00:00:02', '-i', targetPath,
-                        '-vframes', '1', '-vf', 'scale=260:-1', '-q:v', '4', thumbPath
+                        '-threads', '2', '-y', '-ss', '00:00:01', '-i', targetPath,
+                        '-vframes', '1', '-vf', 'scale=320:-1', '-q:v', '3', thumbPath
                     ];
-                    execFile('ffmpeg', ffmpegArgs, { timeout: 8000 }, async (err) => {
+                    execFile('ffmpeg', ffmpegArgs, { timeout: 6000 }, async (err) => {
                         try {
                             const stat = await fsp.stat(thumbPath);
                             if (!err && stat.size > 0) {
@@ -297,29 +319,19 @@ async function ensureThumbnailAsync(wallpaperId, targetPath, thumbPath, isVideo)
                                 return;
                             }
                         } catch {}
-
-                        const retryArgs = [
-                            '-threads', '2', '-y', '-i', targetPath,
-                            '-vframes', '1', '-vf', 'scale=260:-1', '-q:v', '4', thumbPath
-                        ];
-                        execFile('ffmpeg', retryArgs, { timeout: 8000 }, async (err2) => {
-                            try {
-                                const stat2 = await fsp.stat(thumbPath);
-                                if (!err2 && stat2.size > 0) {
-                                    notifyThumbnailSubscribers(thumbPath);
-                                    resolve(thumbPath);
-                                    return;
-                                }
-                            } catch {}
-
-                            // Failure: release subscribers so a future scan can retry
-                            pendingThumbs.delete(thumbPath);
-                            resolve(targetPath);
-                        });
+                        pendingThumbs.delete(thumbPath);
+                        resolve(targetPath);
                     });
-                });
+                } catch {
+                    pendingThumbs.delete(thumbPath);
+                    resolve(targetPath);
+                }
             });
-        }
+        });
+    }
+
+    if (isVideo) {
+        return path.join(__dirname, '../../assets/icon.png');
     }
     return targetPath;
 }
@@ -356,23 +368,14 @@ ipcMain.handle('get-wallpapers', async (event) => {
                 const isVideo = VIDEO_EXTS.has(ext);
                 const thumbPath = getThumbPath(THUMB_DIR, targetPath, stat);
 
-                const resolvedPreviewPath = await ensureThumbnailAsync(
+                const resolvedPreviewPath = ensureThumbnailSyncFast(
                     crypto.createHash('sha256').update(sourcePath).digest('hex'),
                     targetPath,
                     thumbPath,
                     isVideo
                 );
 
-                let initialThumbUrl;
-                if (isVideo) {
-                    if (resolvedPreviewPath === thumbPath) {
-                        initialThumbUrl = pathToFileURL(thumbPath).href;
-                    } else {
-                        initialThumbUrl = pathToFileURL(path.join(__dirname, '../../assets/icon.png')).href;
-                    }
-                } else {
-                    initialThumbUrl = pathToFileURL(resolvedPreviewPath).href;
-                }
+                const initialThumbUrl = pathToFileURL(resolvedPreviewPath).href;
 
                 return rememberWallpaper(
                     nextInventory,

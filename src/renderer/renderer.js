@@ -137,17 +137,16 @@ function setupControls() {
     document.getElementById('nav-left').addEventListener('click', () => scrollTrack(-SCROLL_STEP));
     document.getElementById('nav-right').addEventListener('click', () => scrollTrack(SCROLL_STEP));
 
-    // Horizontal Wheel Scroll Translation
-    const wrapper = document.getElementById('slices-wrapper');
-    const track = document.getElementById('slices-track');
-    if (wrapper && track) {
-        wrapper.addEventListener('wheel', (e) => {
-            if (e.deltaY !== 0 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-                e.preventDefault();
-                track.scrollBy({ left: e.deltaY * 1.5, behavior: 'auto' });
-            }
-        }, { passive: false });
-    }
+    // Global Wheel Listener (mouse wheel anywhere in window scrolls track horizontally)
+    window.addEventListener('wheel', (e) => {
+        const track = document.getElementById('slices-track');
+        if (!track) return;
+        const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+        if (delta !== 0) {
+            e.preventDefault();
+            track.scrollLeft += delta * 1.5;
+        }
+    }, { passive: false });
 }
 
 function setFocusedCard(index) {
