@@ -27,7 +27,7 @@ The window is a transient overlay (single-instance lock, ~300px strip). The heav
 | Windows | Yes | No | `SystemParametersInfoW` |
 | macOS | Yes | No | AppleScript |
 
-*Note: Video wallpaper support is currently exclusive to Linux and requires `mpvpaper`.*
+*Note: Video and animated GIF wallpapers are played via mpvpaper on Linux, and handled via native static-image backends on Windows and macOS.*
 
 ---
 
