@@ -22,15 +22,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 function setupThumbReadyListener() {
     if (window.wallpaperAPI && window.wallpaperAPI.onThumbReady) {
         window.wallpaperAPI.onThumbReady((data) => {
-            if (!data) return;
-            const thumbPath = typeof data === 'string' ? data : data.thumbPath;
-            const thumbUrl = typeof data === 'string' ? `file://${data}` : data.thumbUrl;
+            if (!data || !data.id || !data.thumbUrl) return;
+            const { id, thumbUrl } = data;
 
-            document.querySelectorAll('.preview-media').forEach(img => {
-                if (img.dataset.thumbTarget === thumbPath) {
-                    const sep = thumbUrl.includes('?') ? '&' : '?';
-                    img.src = `${thumbUrl}${sep}t=${Date.now()}`;
-                }
+            document.querySelectorAll(`[data-wallpaper-id="${CSS.escape(id)}"]`).forEach(img => {
+                const sep = thumbUrl.includes('?') ? '&' : '?';
+                img.src = `${thumbUrl}${sep}t=${Date.now()}`;
             });
         });
     }
@@ -165,7 +162,7 @@ function filterAndRender() {
     let list = allWallpapers;
     if (query) {
         list = list.filter(w => {
-            const name = (w.name || getBasename(w.path)).toLowerCase();
+            const name = (w.name).toLowerCase();
             return name.includes(query);
         });
     }
@@ -181,8 +178,8 @@ function sortWallpapers(list) {
             return arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
         case 'favorites':
             return arr.sort((a, b) => {
-                const aFav = favoritePaths.has(a.targetPath || a.path) ? 1 : 0;
-                const bFav = favoritePaths.has(b.targetPath || b.path) ? 1 : 0;
+                const aFav = favoritePaths.has(a.favoriteKey) ? 1 : 0;
+                const bFav = favoritePaths.has(b.favoriteKey) ? 1 : 0;
                 if (bFav !== aFav) return bFav - aFav;
                 return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
             });
@@ -228,7 +225,7 @@ function renderFilteredWallpapers(wallpapers) {
 
 function createCard(wall) {
     const card = document.createElement('div');
-    const favoriteKey = wall.targetPath || wall.path;
+    const favoriteKey = wall.favoriteKey;
     const isFav = favoritePaths.has(favoriteKey);
     card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
     card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
@@ -237,8 +234,8 @@ function createCard(wall) {
     img.className = 'preview-media';
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.src = wall.thumbUrl || `file://${wall.thumb}`;
-    img.dataset.thumbTarget = wall.thumbPath || wall.thumb;
+    img.src = wall.thumbUrl;
+    img.dataset.wallpaperId = wall.id;
 
     const favBtn = document.createElement('div');
     favBtn.className = `favorite-btn${isFav ? ' active' : ''}`;
@@ -247,7 +244,7 @@ function createCard(wall) {
 
     favBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const updatedFavs = await window.wallpaperAPI.toggleFavorite(favoriteKey);
+        const updatedFavs = await window.wallpaperAPI.toggleFavorite(wall.id);
         favoritePaths = new Set(updatedFavs || []);
         
         const nowFav = favoritePaths.has(favoriteKey);
@@ -286,7 +283,7 @@ function createCard(wall) {
         isApplying = true;
         card.style.outline = '2px solid #89b4fa';
         try {
-            const res = await window.wallpaperAPI.apply(wall.path);
+            const res = await window.wallpaperAPI.apply(wall.id);
             if (res && res.ok) {
                 setTimeout(() => window.wallpaperAPI.close(), APPLY_CLOSE_DELAY);
             } else {
@@ -325,7 +322,7 @@ function showDeleteDialog(wall, card) {
 
     const name = document.createElement('div');
     name.className = 'delete-name';
-    name.textContent = wall.name || getBasename(wall.path);
+    name.textContent = wall.name;
 
     const btns = document.createElement('div');
     btns.className = 'delete-btns';
@@ -339,10 +336,10 @@ function showDeleteDialog(wall, card) {
     deleteBtn.className = 'btn-delete';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', async () => {
-        const res = await window.wallpaperAPI.remove(wall.path);
+        const res = await window.wallpaperAPI.remove(wall.id);
         if (res && res.success) {
             overlay.remove();
-            allWallpapers = allWallpapers.filter(w => w.path !== wall.path);
+            allWallpapers = allWallpapers.filter(w => w.id !== wall.id);
             card.style.transition = `opacity ${CARD_FADE_DURATION}ms ease, transform ${CARD_FADE_DURATION}ms ease`;
             card.style.opacity = '0';
             card.style.transform = 'scale(0.75) rotateY(-20deg)';

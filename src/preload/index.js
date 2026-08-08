@@ -2,11 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('wallpaperAPI', {
     list: () => ipcRenderer.invoke('get-wallpapers'),
-    apply: (filepath) => ipcRenderer.invoke('apply-wallpaper', { filepath }),
-    remove: (filepath) => ipcRenderer.invoke('delete-wallpaper', { filepath }),
+    apply: (id) => ipcRenderer.invoke('apply-wallpaper', { id }),
+    remove: (id) => ipcRenderer.invoke('delete-wallpaper', { id }),
     getFavorites: () => ipcRenderer.invoke('get-favorites'),
-    toggleFavorite: (filepath) => ipcRenderer.invoke('toggle-favorite', { filepath }),
+    toggleFavorite: (id) => ipcRenderer.invoke('toggle-favorite', { id }),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
-    onThumbReady: (cb) => ipcRenderer.on('thumb-ready', (_event, thumbPath) => cb(thumbPath)),
+    onThumbReady: (cb) => ipcRenderer.on('thumb-ready', (_event, data) => cb(data)),
     close: () => ipcRenderer.send('close-app'),
 });

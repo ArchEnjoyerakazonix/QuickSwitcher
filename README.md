@@ -1,20 +1,33 @@
-# ⚡ QuickSwitcher (v1.1.2)
+# ⚡ QuickSwitcher (v1.2.0)
 
 > A hyper-minimalist, GPU-accelerated wallpaper switcher built for Linux ricing enthusiasts & cross-platform desktops. Seamlessly integrated with Hyprland, X11, KDE, GNOME, Windows, and macOS.
 
 **Why Electron?** Instant startup isn't the goal — instant *switching* is.
-The window is a transient overlay (single-instance lock, ~300px strip);
-the heavy lifting (scan, thumbnails, daemon calls) is fully async.
+The window is a transient overlay (single-instance lock, ~300px strip). The heavy lifting (scan, thumbnails, daemon calls) is fully async.
 
 ## ✨ Features
 
 - 🚀 **Instant Launch**: Bottom-docked floating strip that opens & closes without lag.
 - 🎴 **Interactive Slices**: 3D perspective cards for static wallpapers (`.png`, `.jpg`, `.webp`, `.gif`) and dynamic videos (`.mp4`, `.webm` on Linux via `mpvpaper`).
 - ⚡ **Bounded Async Thumbnailing**: Progressive video frame extraction with max-concurrency bounds.
-- 🔒 **Enterprise Security**: Context isolation, sandboxed IPC, sender validation, path traversal protection, and safe symlink entry deletion (preserving original target files).
-- 🌐 **Universal Cross-Platform**: Native support for ArchEclipse (`set-wallpaper.sh`), vanilla Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME (`gsettings`), KDE Plasma (`plasma-apply-wallpaperimage`), XFCE (`xfconf-query`), Windows (`SystemParametersInfoW`), and macOS (`AppleScript`).
+- 🔒 **Hardened Electron isolation and validated IPC**: Context isolation, sandboxed IPC, strict sender frame validation, path traversal protection, and safe symlink entry deletion via opaque IDs.
 - 🗑️ **Quick Delete & Favorites**: Star your top wallpapers and right-click to delete unwanted files & cached thumbnails.
 - ⌨️ **Keyboard & Mouse Controls**: Navigation with `h`/`l` or arrow keys, `/` to search, `Enter` to apply.
+
+---
+
+## 🌐 Platform Support
+
+| Platform | Static | Video | Backend |
+|---|---|---|---|
+| Hyprland (Linux) | Yes | Yes | `swww` / `hyprpaper` / `mpvpaper` |
+| GNOME (Linux) | Yes | No | `gsettings` |
+| KDE (Linux) | Yes | No | `plasma-apply-wallpaperimage` |
+| XFCE (Linux) | Yes | No | `xfconf-query` |
+| Windows | Yes | No | `SystemParametersInfoW` |
+| macOS | Yes | No | AppleScript |
+
+*Note: Video wallpaper support is currently exclusive to Linux and requires `mpvpaper`.*
 
 ---
 
@@ -38,7 +51,7 @@ the heavy lifting (scan, thumbnails, daemon calls) is fully async.
 Ensure you have Node.js and Electron installed:
 
 ```bash
-sudo pacman -S electron ffmpeg hyprland
+sudo pacman -S electron ffmpeg hyprland mpvpaper
 ```
 
 ### 2. Clone & Install
@@ -67,14 +80,25 @@ windowrulev2 = move 0 100%-300, title:^(QuickSwitcher)$
 
 ## ⚡ Optional Thumbnail Generator
 
-Pre-generate video and image thumbnails for instant caching (Linux):
+Pre-generate video and image thumbnails for instant caching:
 
 ```bash
-chmod +x scripts/generate-thumbs.sh
-./scripts/generate-thumbs.sh
+node scripts/generate-thumbs.js
 ```
 
 ---
+
+## ⚙️ Cache & Config Locations
+
+- **Config**: `~/.config/QuickSwitcher/` (contains favorites, custom folders, and persistent mpvpaper registry)
+- **Cache**: `~/.cache/quickswitcher-thumbs/` (contains generated thumbnails)
+
+---
+
+## 🩺 Troubleshooting
+
+- **Missing Backend Commands**: Ensure tools like `mpvpaper`, `swww`, or `hyprpaper` are installed and in your `$PATH`.
+- **Testing**: Run `npm test` and `npm run verify` to check code integrity and logic.
 
 ## 📄 License
 

@@ -1,67 +1,32 @@
-const { execFile, spawn } = require('child_process');
+const cp = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { promisify } = require('util');
 const { pathToFileURL } = require('url');
+const { stopOwnedMpvpaper, spawnMpvpaperMonitor, saveMpvpaperPids, terminateOwnedPids } = require('./mpvpaperManager');
 
-const pExecFile = promisify(execFile);
+const pExecFile = (cmd, args, opts) => promisify(cp.execFile)(cmd, args, opts);
 const DEFAULT_TIMEOUT = 10000;
-
-// Persistent registry for mpvpaper PIDs across QuickSwitcher launches (P0/P1 Lifecycle Fix)
-function getPidRegistryPath(configDir) {
-    return path.join(configDir || path.join(require('os').homedir(), '.config/QuickSwitcher'), 'mpvpaper_pids.json');
-}
-
-function loadMpvpaperPids(configDir) {
-    try {
-        const file = getPidRegistryPath(configDir);
-        if (fs.existsSync(file)) {
-            const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-            if (Array.isArray(data)) return data;
-        }
-    } catch {}
-    return [];
-}
-
-function saveMpvpaperPids(configDir, pids) {
-    try {
-        const file = getPidRegistryPath(configDir);
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, JSON.stringify(pids, null, 2), 'utf-8');
-    } catch {}
-}
-
-function isProcessMpvpaper(pid) {
-    try {
-        const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
-        return cmdline.includes('mpvpaper');
-    } catch {
-        return false;
-    }
-}
-
-function stopOwnedMpvpaper(configDir) {
-    const pids = loadMpvpaperPids(configDir);
-    const remaining = [];
-
-    for (const pid of pids) {
-        if (isProcessMpvpaper(pid)) {
-            try {
-                process.kill(pid, 'SIGTERM');
-            } catch {}
-        }
-    }
-    saveMpvpaperPids(configDir, []);
-}
 
 /**
  * Universal Cross-Platform Wallpaper Adapter
  * Supports: ArchEclipse (custom script), Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME, KDE, XFCE, Windows, macOS
  */
 async function applyWallpaperUniversal(filepath, options = {}) {
-    const { setWallScript, monitors = [], ws = 1, configDir } = options;
+    const { setWallScript, monitors = [], ws = 1, configDir, previousPath } = options;
 
-    // 1. PRIMARY PRIORITY: If ArchEclipse set-wallpaper.sh script exists, use it!
+    const ext = path.extname(filepath).toLowerCase();
+    const isVideo = ['.mp4', '.webm'].includes(ext);
+    const platform = process.platform;
+    const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
+
+    // 1. LIFECYCLE TRANSITION
+    // Stop any video wallpapers before dispatching to ANY backend
+    if (platform === 'linux') {
+        await stopOwnedMpvpaper(configDir);
+    }
+
+    // 2. PRIMARY PRIORITY: If ArchEclipse set-wallpaper.sh script exists, use it!
     if (setWallScript && fs.existsSync(setWallScript)) {
         const monList = monitors.length ? monitors : ['DP-2'];
         try {
@@ -74,71 +39,36 @@ async function applyWallpaperUniversal(filepath, options = {}) {
         }
     }
 
-    const ext = path.extname(filepath).toLowerCase();
-    const isVideo = ['.mp4', '.webm'].includes(ext);
-    const platform = process.platform;
-    const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
-
-    // 2. VIDEO HANDLING FOR WAYLAND / LINUX (P0/P1 Fix: Persistent mpvpaper PID lifecycle)
+    // 3. VIDEO HANDLING FOR WAYLAND / LINUX
     if (isVideo) {
         if (platform !== 'linux') {
             return { ok: false, backend: null, error: `Video wallpapers are not supported natively on ${platform}` };
         }
 
-        stopOwnedMpvpaper(configDir);
-
         const monList = monitors.length ? monitors : ['*'];
-        const newPids = [];
 
-        try {
-            await Promise.all(monList.map(mon => {
-                return new Promise((resolve, reject) => {
-                    const child = spawn(
-                        'mpvpaper',
-                        ['-f', '-o', 'no-audio --loop-file=inf --panscan=1.0 --hwdec=auto', mon, filepath],
-                        { detached: true, stdio: 'ignore' }
-                    );
+        const results = await Promise.allSettled(
+            monList.map(mon => spawnMpvpaperMonitor(mon, filepath, cp.spawn))
+        );
 
-                    let settled = false;
+        const started = results
+            .filter(r => r.status === 'fulfilled')
+            .map(r => r.value);
 
-                    child.once('error', (err) => {
-                        if (!settled) {
-                            settled = true;
-                            reject(err);
-                        }
-                    });
+        const failures = results
+            .filter(r => r.status === 'rejected');
 
-                    child.once('exit', (code) => {
-                        if (!settled) {
-                            settled = true;
-                            reject(new Error(`mpvpaper exited immediately with code ${code}`));
-                        }
-                    });
-
-                    child.once('spawn', () => {
-                        setTimeout(() => {
-                            if (!settled && child.exitCode === null) {
-                                settled = true;
-                                newPids.push(child.pid);
-                                child.unref();
-                                resolve(child.pid);
-                            }
-                        }, 300);
-                    });
-                });
-            }));
-
-            saveMpvpaperPids(configDir, newPids);
-            return { ok: true, backend: 'mpvpaper' };
-        } catch (e) {
-            return { ok: false, backend: 'mpvpaper', error: e.message };
+        if (failures.length > 0) {
+            await terminateOwnedPids(started);
+            await saveMpvpaperPids(configDir, []);
+            return { ok: false, backend: 'mpvpaper', error: failures[0].reason.message };
         }
+
+        await saveMpvpaperPids(configDir, started);
+        return { ok: true, backend: 'mpvpaper' };
     }
 
-    // Stop any video wallpapers when switching to a static image
-    stopOwnedMpvpaper(configDir);
-
-    // 3. WINDOWS PLATFORM (P1 Fix: Validate SystemParametersInfo return code)
+    // 4. WINDOWS PLATFORM
     if (platform === 'win32') {
         const psScript = `
 $code = @'
@@ -165,7 +95,7 @@ if (-not $ok) {
         }
     }
 
-    // 4. MACOS PLATFORM
+    // 5. MACOS PLATFORM
     if (platform === 'darwin') {
         const script = `
 on run argv
@@ -184,7 +114,7 @@ end run`;
         }
     }
 
-    // 5. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE)
+    // 6. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE)
     if (desktop.includes('GNOME') || desktop.includes('CINNAMON') || desktop.includes('MATE')) {
         const safeUri = pathToFileURL(filepath).href;
         const schema = desktop.includes('MATE') ? 'org.mate.background' :
@@ -222,19 +152,23 @@ end run`;
         }
     }
 
-    // 6. HYPRLAND / WAYLAND / X11 FALLBACKS
+    // 7. HYPRLAND / WAYLAND / X11 FALLBACKS
     try {
         await pExecFile('swww', ['query'], { timeout: 1000 });
         await pExecFile('swww', ['img', filepath], { timeout: DEFAULT_TIMEOUT });
         return { ok: true, backend: 'swww' };
     } catch (e) { /* swww not active */ }
 
-    // Preload & assign first, then unload unused resources (Hyprpaper fix)
+    // Preload & assign first, then unload previous
     try {
         await pExecFile('hyprctl', ['hyprpaper', 'preload', filepath], { timeout: 5000 });
         const monList = monitors.length ? monitors : [''];
         await Promise.all(monList.map(mon => pExecFile('hyprctl', ['hyprpaper', 'wallpaper', `${mon},${filepath}`], { timeout: DEFAULT_TIMEOUT })));
-        await pExecFile('hyprctl', ['hyprpaper', 'unload', 'all'], { timeout: 2000 }).catch(() => {});
+        
+        if (previousPath && previousPath !== filepath) {
+            await pExecFile('hyprctl', ['hyprpaper', 'unload', previousPath], { timeout: 2000 }).catch(() => {});
+        }
+        
         return { ok: true, backend: 'hyprpaper' };
     } catch (err) {
         try {
@@ -246,4 +180,4 @@ end run`;
     }
 }
 
-module.exports = { applyWallpaperUniversal, stopOwnedMpvpaper };
+module.exports = { applyWallpaperUniversal };
