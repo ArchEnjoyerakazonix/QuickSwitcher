@@ -16,9 +16,14 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     const { setWallScript, monitors = [], ws = 1, configDir, previousPath, mediaType } = options;
 
     const ext = path.extname(filepath).toLowerCase();
-    const isVideo = mediaType ? (mediaType === 'VIDEO') : ['.mp4', '.webm', '.gif'].includes(ext);
     const platform = process.platform;
     const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
+
+    // GIF is handled as an animated video on Linux (via mpvpaper / setWallScript),
+    // but falls through to native static image backends on Windows, macOS, GNOME, KDE, XFCE.
+    const isGif = ext === '.gif';
+    const isTrueVideo = mediaType === 'VIDEO' ? (!isGif) : ['.mp4', '.webm'].includes(ext);
+    const isVideo = isTrueVideo || (isGif && platform === 'linux');
 
     // 1. LIFECYCLE TRANSITION
     // Stop any video wallpapers before dispatching to ANY backend
@@ -87,7 +92,8 @@ if (-not $ok) {
         try {
             await pExecFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
                 env: { ...process.env, QS_WALLPAPER_PATH: filepath },
-                timeout: DEFAULT_TIMEOUT
+                timeout: DEFAULT_TIMEOUT,
+                windowsHide: true
             });
             return { ok: true, backend: 'Windows (SystemParametersInfo)' };
         } catch (e) {
@@ -114,14 +120,18 @@ end run`;
         }
     }
 
-    // 6. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE)
+    // 6. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE / MATE / CINNAMON)
     if (desktop.includes('GNOME') || desktop.includes('CINNAMON') || desktop.includes('MATE')) {
         const safeUri = pathToFileURL(filepath).href;
-        const schema = desktop.includes('MATE') ? 'org.mate.background' :
+        const isMate = desktop.includes('MATE');
+        const schema = isMate ? 'org.mate.background' :
                        desktop.includes('CINNAMON') ? 'org.cinnamon.desktop.background' :
                        'org.gnome.desktop.background';
+        const key = isMate ? 'picture-filename' : 'picture-uri';
+        const val = isMate ? filepath : safeUri;
+
         try {
-            await pExecFile('gsettings', ['set', schema, 'picture-uri', safeUri], { timeout: DEFAULT_TIMEOUT });
+            await pExecFile('gsettings', ['set', schema, key, val], { timeout: DEFAULT_TIMEOUT });
             if (desktop.includes('GNOME')) {
                 await pExecFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], { timeout: DEFAULT_TIMEOUT }).catch(() => {});
             }

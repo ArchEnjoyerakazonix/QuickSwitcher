@@ -1,56 +1,80 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const child_process = require('child_process');
+const cp = require('child_process');
 const { applyWallpaperUniversal } = require('../src/main/wallpaperAdapter');
 
-test('wallpaperAdapter applyWallpaperUniversal', async (t) => {
-    // Stub execFile
-    const originalExecFile = child_process.execFile;
-    let runCommands = [];
-
-    child_process.execFile = (cmd, args, options, callback) => {
-        runCommands.push({ cmd, args });
-        const cb = typeof options === 'function' ? options : callback;
-        cb(null, { stdout: '' });
-    };
-
-    t.afterEach(() => {
-        runCommands = [];
-    });
+test('wallpaperAdapter Universal Dispatch & GIF Routing', async (t) => {
+    const originalExecFile = cp.execFile;
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const originalDesktop = process.env.XDG_CURRENT_DESKTOP;
 
     t.after(() => {
-        child_process.execFile = originalExecFile;
+        cp.execFile = originalExecFile;
+        if (originalPlatform) Object.defineProperty(process, 'platform', originalPlatform);
+        if (originalDesktop !== undefined) process.env.XDG_CURRENT_DESKTOP = originalDesktop;
+        else delete process.env.XDG_CURRENT_DESKTOP;
     });
 
-    await t.test('applies static wallpaper using swww if active', async () => {
-        const result = await applyWallpaperUniversal('/path/to/wall.jpg', {
-            monitors: ['DP-1']
-        });
+    await t.test('win32: routes GIF files to SystemParametersInfo (PowerShell)', async () => {
+        Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-        assert.strictEqual(result.ok, true);
-        assert.strictEqual(result.backend, 'swww');
-        assert.strictEqual(runCommands[0].cmd, 'swww');
-        assert.strictEqual(runCommands[0].args[0], 'query');
-        assert.strictEqual(runCommands[1].cmd, 'swww');
-        assert.strictEqual(runCommands[1].args[0], 'img');
-    });
-
-    await t.test('falls back to hyprpaper if swww fails', async () => {
-        child_process.execFile = (cmd, args, options, callback) => {
-            const cb = typeof options === 'function' ? options : callback;
-            if (cmd === 'swww' && args[0] === 'query') {
-                cb(new Error('swww not active'));
-            } else {
-                cb(null, { stdout: '' });
-            }
+        let capturedCmd, capturedArgs;
+        cp.execFile = (cmd, args, opts, cb) => {
+            capturedCmd = cmd;
+            capturedArgs = args;
+            if (typeof opts === 'function') cb = opts;
+            cb(null, { stdout: '', stderr: '' });
         };
 
-        const result = await applyWallpaperUniversal('/path/to/wall.jpg', {
-            monitors: ['DP-1'],
-            previousPath: '/path/to/prev.jpg'
-        });
+        const res = await applyWallpaperUniversal('/path/to/image.gif', { mediaType: 'IMAGE' });
+        assert.strictEqual(res.ok, true);
+        assert.strictEqual(res.backend, 'Windows (SystemParametersInfo)');
+        assert.strictEqual(capturedCmd, 'powershell');
+    });
 
-        assert.strictEqual(result.ok, true);
-        assert.strictEqual(result.backend, 'hyprpaper');
+    await t.test('darwin: routes GIF files to osascript', async () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+
+        let capturedCmd;
+        cp.execFile = (cmd, args, opts, cb) => {
+            capturedCmd = cmd;
+            if (typeof opts === 'function') cb = opts;
+            cb(null, { stdout: '', stderr: '' });
+        };
+
+        const res = await applyWallpaperUniversal('/path/to/image.gif', { mediaType: 'IMAGE' });
+        assert.strictEqual(res.ok, true);
+        assert.strictEqual(res.backend, 'macOS (Finder)');
+        assert.strictEqual(capturedCmd, 'osascript');
+    });
+
+    await t.test('Linux (MATE): uses picture-filename schema key for gsettings', async () => {
+        Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+        process.env.XDG_CURRENT_DESKTOP = 'MATE';
+
+        let capturedSchema, capturedKey, capturedVal;
+        cp.execFile = (cmd, args, opts, cb) => {
+            if (cmd === 'gsettings' && args[0] === 'set') {
+                capturedSchema = args[1];
+                capturedKey = args[2];
+                capturedVal = args[3];
+            }
+            if (typeof opts === 'function') cb = opts;
+            cb(null, { stdout: '', stderr: '' });
+        };
+
+        const res = await applyWallpaperUniversal('/path/to/image.png', { mediaType: 'IMAGE' });
+        assert.strictEqual(res.ok, true);
+        assert.strictEqual(capturedSchema, 'org.mate.background');
+        assert.strictEqual(capturedKey, 'picture-filename');
+        assert.strictEqual(capturedVal, '/path/to/image.png');
+    });
+
+    await t.test('win32: rejects true video files with clear error message', async () => {
+        Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+        const res = await applyWallpaperUniversal('/path/to/video.mp4', { mediaType: 'VIDEO' });
+        assert.strictEqual(res.ok, false);
+        assert.match(res.error, /Video wallpapers are not supported natively on win32/);
     });
 });

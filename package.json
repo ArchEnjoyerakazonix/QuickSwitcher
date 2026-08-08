@@ -1,5 +1,6 @@
 {
   "name": "quickswitcher",
+  "productName": "QuickSwitcher",
   "version": "1.2.0",
   "description": "Minimal GPU-accelerated wallpaper quickswitcher for Arch Linux & Hyprland",
   "main": "src/main/index.js",
@@ -32,6 +33,11 @@
   "build": {
     "appId": "com.archenjoyer.quickswitcher",
     "productName": "QuickSwitcher",
+    "files": [
+      "src/**",
+      "assets/**",
+      "package.json"
+    ],
     "linux": {
       "target": [
         "AppImage",
