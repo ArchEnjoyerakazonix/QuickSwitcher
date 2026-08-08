@@ -3,3 +3,4 @@ node_modules/
 *.log
 dist/
 out/
+.github/workflows/ci.yml

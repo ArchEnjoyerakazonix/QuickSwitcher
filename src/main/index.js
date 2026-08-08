@@ -416,17 +416,17 @@ ipcMain.handle('apply-wallpaper', async (event, payload) => {
         return { ok: false, error: 'Wallpaper unavailable; rescan required' };
     }
 
-    const [monitors, ws, appState] = await Promise.all([
-        detectMonitors(),
-        detectWorkspace(),
-        readJson(STATE_FILE, { activeWallpaperPath: null })
-    ]);
+    const setWallScript = SET_WALL_SCRIPT;
+    const monitors = await detectMonitors();
+    const activeWs = await detectWorkspace();
+    const configDir = CONFIG_DIR;
+    const appState = await readJson(STATE_FILE, { activeWallpaperPath: null });
 
     const result = await applyWallpaperUniversal(record.targetPath, {
-        setWallScript: SET_WALL_SCRIPT,
+        setWallScript,
         monitors,
-        ws,
-        configDir: CONFIG_DIR,
+        ws: activeWs,
+        configDir,
         previousPath: appState.activeWallpaperPath,
         mediaType: record.type
     });

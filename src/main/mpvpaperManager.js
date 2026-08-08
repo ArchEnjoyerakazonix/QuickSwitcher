@@ -96,7 +96,7 @@ async function spawnMpvpaperMonitor(mon, filepath, spawnFn = spawn) {
     return new Promise((resolve, reject) => {
         const child = spawnFn(
             'mpvpaper',
-            ['-f', '-o', 'no-audio --loop-file=inf --panscan=1.0 --hwdec=auto', mon, filepath],
+            ['-o', 'no-audio loop hwdec=auto scale=bilinear interpolation=no video-sync=display-resample panscan=1.0 video-scale-x=1.0 video-scale-y=1.0 video-align-x=0.5 video-align-y=0.5 load-scripts=no', mon, filepath],
             { detached: true, stdio: 'ignore' }
         );
 

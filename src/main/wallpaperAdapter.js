@@ -26,6 +26,24 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     const isVideo = isTrueVideo || (isGif && platform === 'linux');
 
     // 1. LIFECYCLE TRANSITION
+    // Sync with Hyprland wallpaper daemon current.conf & __restore_video_wallpaper.sh to prevent daemon revert on window/workspace switch
+    const homeDir = require('os').homedir();
+    const currentConf = path.join(homeDir, '.config/hypr/wallpaper-daemon/config/current.conf');
+    if (fs.existsSync(path.dirname(currentConf))) {
+        try {
+            fs.mkdirSync(path.dirname(currentConf), { recursive: true });
+            fs.writeFileSync(currentConf, filepath, 'utf-8');
+        } catch {}
+    }
+
+    const restoreScript = path.join(homeDir, '.config/hypr/custom/scripts/__restore_video_wallpaper.sh');
+    if (isVideo && fs.existsSync(path.dirname(restoreScript))) {
+        try {
+            const scriptContent = `#!/bin/bash\npkill -f -9 mpvpaper\nfor monitor in $(hyprctl monitors -j | jq -r '.[] | .name'); do\n    mpvpaper -o "no-audio loop hwdec=auto scale=bilinear interpolation=no video-sync=display-resample panscan=1.0 video-scale-x=1.0 video-scale-y=1.0 video-align-x=0.5 video-align-y=0.5 load-scripts=no" "$monitor" "${filepath}" &\n    sleep 0.1\ndone\n`;
+            fs.writeFileSync(restoreScript, scriptContent, 'utf-8');
+        } catch {}
+    }
+
     // Stop any video wallpapers before dispatching to ANY backend
     if (platform === 'linux') {
         await stopOwnedMpvpaper(configDir);
@@ -50,7 +68,7 @@ async function applyWallpaperUniversal(filepath, options = {}) {
             return { ok: false, backend: null, error: `Video wallpapers are not supported natively on ${platform}` };
         }
 
-        const monList = monitors.length ? monitors : ['*'];
+        const monList = monitors.length ? monitors : ['eDP-1'];
 
         const results = await Promise.allSettled(
             monList.map(mon => spawnMpvpaperMonitor(mon, filepath, cp.spawn))
