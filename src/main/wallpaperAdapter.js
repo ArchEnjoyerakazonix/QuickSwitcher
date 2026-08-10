@@ -197,6 +197,14 @@ end run`;
             await pExecFile('hyprctl', ['hyprpaper', 'unload', previousPath], { timeout: 2000 }).catch(() => {});
         }
         
+        // Trigger Matugen / switchwall.sh to auto-recolor Kitty, Hyprland, Quickshell, GTK & system UI
+        const switchwallScript = path.join(homeDir, '.config/quickshell/ii/scripts/colors/switchwall.sh');
+        if (fs.existsSync(switchwallScript)) {
+            cp.execFile('bash', [switchwallScript, filepath], (err) => {
+                if (err) console.error('[QuickSwitcher] Auto-recolor switchwall error:', err.message);
+            });
+        }
+
         return { ok: true, backend: 'hyprpaper' };
     } catch (err) {
         try {
