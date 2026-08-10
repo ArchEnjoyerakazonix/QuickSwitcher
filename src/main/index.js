@@ -269,8 +269,8 @@ async function generateImageThumbnailNative(targetPath, thumbPath) {
         if (!img.isEmpty()) {
             const size = img.getSize();
             if (size.width > 0 && size.height > 0) {
-                const resized = img.resize({ width: 320, quality: 'better' });
-                const jpegBuffer = resized.toJPEG(80);
+                const resized = img.resize({ width: 640, quality: 'best' });
+                const jpegBuffer = resized.toJPEG(92);
                 if (jpegBuffer && jpegBuffer.length > 0) {
                     await fsp.writeFile(thumbPath, jpegBuffer);
                     return true;
@@ -308,7 +308,7 @@ function ensureThumbnailSyncFast(wallpaperId, targetPath, thumbPath, isVideo) {
 
                     const ffmpegArgs = [
                         '-threads', '2', '-y', '-ss', '00:00:01', '-i', targetPath,
-                        '-vframes', '1', '-vf', 'scale=320:-1', '-q:v', '3', thumbPath
+                        '-vframes', '1', '-vf', 'scale=640:-1', '-q:v', '2', thumbPath
                     ];
                     execFile('ffmpeg', ffmpegArgs, { timeout: 6000 }, async (err) => {
                         try {

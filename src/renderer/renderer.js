@@ -187,7 +187,7 @@ async function loadWallpapers() {
     filterAndRender();
 }
 
-function filterAndRender() {
+function filterAndRender(preserveScroll = false) {
     const searchInput = document.getElementById('search-input');
     const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
@@ -200,7 +200,7 @@ function filterAndRender() {
     }
 
     const sorted = sortWallpapers(list);
-    renderFilteredWallpapers(sorted);
+    renderFilteredWallpapers(sorted, preserveScroll);
 }
 
 function sortWallpapers(list) {
@@ -238,15 +238,18 @@ function sortWallpapers(list) {
     }
 }
 
-function renderFilteredWallpapers(wallpapers) {
+function renderFilteredWallpapers(wallpapers, preserveScroll = false) {
     const track = document.getElementById('slices-track');
+    const savedScroll = track ? track.scrollLeft : 0;
     document.getElementById('wall-count').textContent = `${wallpapers.length} wallpapers`;
 
     activeFilteredWallpapers = wallpapers;
     focusedCardIndex = -1;
     if (track) {
         track.innerHTML = '';
-        track.scrollLeft = 0;
+        if (!preserveScroll) {
+            track.scrollLeft = 0;
+        }
     }
 
     if (wallpapers.length === 0) {
@@ -258,7 +261,12 @@ function renderFilteredWallpapers(wallpapers) {
     wallpapers.forEach((wall, index) => {
         frag.appendChild(createCard(wall, index));
     });
-    track.appendChild(frag);
+    if (track) {
+        track.appendChild(frag);
+        if (preserveScroll) {
+            track.scrollLeft = savedScroll;
+        }
+    }
 }
 
 function createCard(wall, cardIndex) {
@@ -367,7 +375,7 @@ function showDeleteDialog(wall, card) {
             card.style.transform = 'scale(0.75)';
             setTimeout(() => {
                 card.remove();
-                filterAndRender();
+                filterAndRender(true);
             }, CARD_FADE_DURATION + 20);
         }
     });
