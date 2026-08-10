@@ -269,8 +269,8 @@ async function generateImageThumbnailNative(targetPath, thumbPath) {
         if (!img.isEmpty()) {
             const size = img.getSize();
             if (size.width > 0 && size.height > 0) {
-                const resized = img.resize({ width: 640, quality: 'best' });
-                const jpegBuffer = resized.toJPEG(92);
+                const resized = img.resize({ width: 800, quality: 'best' });
+                const jpegBuffer = resized.toJPEG(95);
                 if (jpegBuffer && jpegBuffer.length > 0) {
                     await fsp.writeFile(thumbPath, jpegBuffer);
                     return true;
@@ -279,6 +279,20 @@ async function generateImageThumbnailNative(targetPath, thumbPath) {
         }
     } catch (e) {}
     return false;
+}
+
+function generateImageThumbnailMagick(targetPath, thumbPath) {
+    return new Promise((resolve) => {
+        execFile('magick', [
+            targetPath, '-resize', '800x800>', '-quality', '95', thumbPath
+        ], { timeout: 5000 }, (err) => {
+            if (!err && fs.existsSync(thumbPath)) {
+                resolve(true);
+            } else {
+                resolve(false);
+            }
+        });
+    });
 }
 
 function ensureThumbnailSyncFast(wallpaperId, targetPath, thumbPath, isVideo) {
@@ -298,30 +312,50 @@ function ensureThumbnailSyncFast(wallpaperId, targetPath, thumbPath, isVideo) {
             return new Promise(async (resolve) => {
                 try {
                     if (!isVideo) {
-                        const success = await generateImageThumbnailNative(targetPath, thumbPath);
+                        // 1. Try ImageMagick (ultra crisp 640x960 94% quality)
+                        let success = await generateImageThumbnailMagick(targetPath, thumbPath);
+                        if (!success) {
+                            // 2. Fallback to Electron nativeImage
+                            success = await generateImageThumbnailNative(targetPath, thumbPath);
+                        }
+                        if (!success) {
+                            // 3. Fallback to ffmpeg (no -ss for static images!)
+                            const ffmpegArgs = [
+                                '-threads', '2', '-y', '-i', targetPath,
+                                '-vframes', '1', '-vf', 'scale=640:-1', '-q:v', '2', thumbPath
+                            ];
+                            await new Promise((r) => execFile('ffmpeg', ffmpegArgs, { timeout: 6000 }, r));
+                            success = fs.existsSync(thumbPath);
+                        }
+
                         if (success) {
                             notifyThumbnailSubscribers(thumbPath);
                             resolve(thumbPath);
                             return;
                         }
+                    } else {
+                        // Video thumbnail via ffmpeg
+                        const ffmpegArgs = [
+                            '-threads', '2', '-y', '-ss', '00:00:02', '-i', targetPath,
+                            '-vframes', '1', '-vf', 'scale=640:-1', '-q:v', '2', thumbPath
+                        ];
+                        execFile('ffmpeg', ffmpegArgs, { timeout: 6000 }, async (err) => {
+                            try {
+                                const stat = await fsp.stat(thumbPath);
+                                if (!err && stat.size > 0) {
+                                    notifyThumbnailSubscribers(thumbPath);
+                                    resolve(thumbPath);
+                                    return;
+                                }
+                            } catch {}
+                            pendingThumbs.delete(thumbPath);
+                            resolve(targetPath);
+                        });
+                        return;
                     }
 
-                    const ffmpegArgs = [
-                        '-threads', '2', '-y', '-ss', '00:00:01', '-i', targetPath,
-                        '-vframes', '1', '-vf', 'scale=640:-1', '-q:v', '2', thumbPath
-                    ];
-                    execFile('ffmpeg', ffmpegArgs, { timeout: 6000 }, async (err) => {
-                        try {
-                            const stat = await fsp.stat(thumbPath);
-                            if (!err && stat.size > 0) {
-                                notifyThumbnailSubscribers(thumbPath);
-                                resolve(thumbPath);
-                                return;
-                            }
-                        } catch {}
-                        pendingThumbs.delete(thumbPath);
-                        resolve(targetPath);
-                    });
+                    pendingThumbs.delete(thumbPath);
+                    resolve(targetPath);
                 } catch {
                     pendingThumbs.delete(thumbPath);
                     resolve(targetPath);
