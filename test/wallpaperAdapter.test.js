@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const cp = require('child_process');
-const { applyWallpaperUniversal } = require('../src/main/wallpaperAdapter');
+const { applyWallpaperUniversal, buildRestoreScript } = require('../src/main/wallpaperAdapter');
 
 test('wallpaperAdapter Universal Dispatch & GIF Routing', async (t) => {
     const originalExecFile = cp.execFile;
@@ -77,4 +77,17 @@ test('wallpaperAdapter Universal Dispatch & GIF Routing', async (t) => {
         assert.strictEqual(res.ok, false);
         assert.match(res.error, /Video wallpapers are not supported natively on win32/);
     });
+
+    await t.test('Linux (video): buildRestoreScript contract is immune to arbitrary shell injection', () => {
+        const testPathFile = '/home/user/.config/hypr/custom/scripts/__current_video_path.txt';
+        const script = buildRestoreScript(testPathFile);
+
+        // Path must NOT be directly concatenated as code, but read via $PATH_FILE
+        assert.ok(script.includes(`PATH_FILE="${testPathFile}"`));
+        assert.ok(script.includes('WALL="$(cat "$PATH_FILE")"'));
+        assert.ok(script.includes('mpvpaper -o'));
+        assert.ok(script.includes('"$WALL" &'));
+        assert.ok(!script.includes('${filepath}'));
+    });
 });
+

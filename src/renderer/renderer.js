@@ -3,6 +3,10 @@ const SCROLL_STEP = 500;       // px per arrow-key/button press
 const APPLY_CLOSE_DELAY = 300; // ms before closing after applying wallpaper
 const CARD_FADE_DURATION = 220; // ms for card delete animation
 
+const STAR_FILLED_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#f9e2af" stroke="#f9e2af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+const STAR_OUTLINE_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+const TRASH_SVG = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+
 let allWallpapers = [];
 let favoritePaths = new Set();
 let currentSort = 'name-asc';
@@ -127,7 +131,7 @@ function setupControls() {
                 document.querySelectorAll('.sort-option').forEach(el => el.classList.remove('active'));
                 opt.classList.add('active');
                 currentSort = opt.getAttribute('data-sort');
-                sortBtn.textContent = (opt.textContent.replace('⭐ ', '') || 'Sort') + ' ▾';
+                sortBtn.textContent = (opt.textContent || 'Sort') + ' ▾';
                 sortDropdown.classList.add('hidden');
                 filterAndRender();
             });
@@ -172,7 +176,7 @@ function scrollTrack(delta) {
 
 async function loadWallpapers() {
     const track = document.getElementById('slices-track');
-    track.innerHTML = '<div class="loading-msg">⚡ Loading wallpapers...</div>';
+    track.innerHTML = '<div class="loading-msg">Loading wallpapers...</div>';
 
     try {
         const [wallpapers, favs] = await Promise.all([
@@ -274,7 +278,6 @@ function createCard(wall, cardIndex) {
     const favoriteKey = wall.favoriteKey;
     const isFav = favoritePaths.has(favoriteKey);
     card.className = `slice-card${isFav ? ' is-favorite' : ''}`;
-    card.title = `${wall.name} (${wall.sizeFormatted || ''})`;
 
     const img = document.createElement('img');
     img.className = 'preview-media';
@@ -284,7 +287,7 @@ function createCard(wall, cardIndex) {
 
     const favBtn = document.createElement('div');
     favBtn.className = `favorite-btn${isFav ? ' active' : ''}`;
-    favBtn.textContent = isFav ? '★' : '☆';
+    favBtn.innerHTML = isFav ? STAR_FILLED_SVG : STAR_OUTLINE_SVG;
     favBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
 
     favBtn.addEventListener('click', async (e) => {
@@ -294,7 +297,7 @@ function createCard(wall, cardIndex) {
 
         const nowFav = favoritePaths.has(favoriteKey);
         favBtn.className = `favorite-btn${nowFav ? ' active' : ''}`;
-        favBtn.textContent = nowFav ? '★' : '☆';
+        favBtn.innerHTML = nowFav ? STAR_FILLED_SVG : STAR_OUTLINE_SVG;
         favBtn.title = nowFav ? 'Remove from favorites' : 'Add to favorites';
 
         if (nowFav) {
@@ -308,18 +311,39 @@ function createCard(wall, cardIndex) {
         }
     });
 
-    const badge = document.createElement('span');
-    badge.className = `fmt-badge${wall.type === 'VIDEO' ? ' video' : ''}`;
-    badge.textContent = wall.ext;
+    // Cyberpunk Interactive HUD (appears on hover / focus)
+    const hud = document.createElement('div');
+    hud.className = 'cyber-hud';
 
-    const sizeBadge = document.createElement('span');
-    sizeBadge.className = 'size-badge';
-    sizeBadge.textContent = wall.sizeFormatted || '';
+    const hudHeader = document.createElement('div');
+    hudHeader.className = 'cyber-hud-header';
+
+    const typeTag = document.createElement('span');
+    typeTag.className = `cyber-tag ${wall.type === 'VIDEO' ? 'video' : 'image'}`;
+    typeTag.textContent = wall.ext;
+
+    const sizeTag = document.createElement('span');
+    sizeTag.className = 'cyber-size';
+    sizeTag.textContent = wall.sizeFormatted || '';
+
+    hudHeader.appendChild(typeTag);
+    if (wall.sizeFormatted) hudHeader.appendChild(sizeTag);
+
+    const hudTitle = document.createElement('div');
+    hudTitle.className = 'cyber-hud-title';
+    hudTitle.textContent = wall.name;
+
+    const hudAction = document.createElement('div');
+    hudAction.className = 'cyber-hud-action';
+    hudAction.textContent = 'CLICK TO APPLY';
+
+    hud.appendChild(hudHeader);
+    hud.appendChild(hudTitle);
+    hud.appendChild(hudAction);
 
     card.appendChild(img);
     card.appendChild(favBtn);
-    card.appendChild(badge);
-    if (wall.sizeFormatted) card.appendChild(sizeBadge);
+    card.appendChild(hud);
 
     card.addEventListener('click', () => {
         applyWallpaper(wall, card);
@@ -344,7 +368,7 @@ function showDeleteDialog(wall, card) {
 
     const icon = document.createElement('div');
     icon.className = 'delete-icon';
-    icon.textContent = '🗑️';
+    icon.innerHTML = TRASH_SVG;
 
     const msg = document.createElement('div');
     msg.className = 'delete-msg';

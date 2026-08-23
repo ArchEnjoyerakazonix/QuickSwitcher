@@ -2,12 +2,13 @@
   "name": "quickswitcher",
   "productName": "QuickSwitcher",
   "version": "1.2.0",
-  "description": "Minimal GPU-accelerated wallpaper quickswitcher for Arch Linux & Hyprland",
+  "description": "Minimal GPU-accelerated wallpaper quickswitcher for Hyprland, Wayland, and cross-platform desktop environments",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/index.js && node --check src/main/wallpaperAdapter.js && node --check src/preload/index.js && node --check src/renderer/renderer.js && node --check scripts/generate-thumbs.js && node --check src/main/appPaths.js && node --check src/main/store.js && node --check src/main/ipcValidation.js && node --check src/main/wallpaperInventory.js && node --check src/main/mpvpaperManager.js && node --check src/main/pathPolicy.js && node --check src/main/thumbnailPolicy.js",
-    "test": "node --test --experimental-test-coverage",
+    "check": "node --check src/main/index.js && node --check src/main/wallpaperAdapter.js && node --check src/preload/index.js && node --check src/renderer/renderer.js && node --check scripts/generate-thumbs.js && node --check scripts/test-multi-env.js && node --check src/main/appPaths.js && node --check src/main/store.js && node --check src/main/ipcValidation.js && node --check src/main/wallpaperInventory.js && node --check src/main/mpvpaperManager.js && node --check src/main/pathPolicy.js && node --check src/main/thumbnailPolicy.js",
+    "test": "node --test 'test/*.test.js' --experimental-test-coverage",
+    "test:containers": "node scripts/test-multi-env.js",
     "verify": "npm run check && npm test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"

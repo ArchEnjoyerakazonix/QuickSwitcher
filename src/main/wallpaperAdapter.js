@@ -8,6 +8,20 @@ const { stopOwnedMpvpaper, spawnMpvpaperMonitor, saveMpvpaperPids, terminateOwne
 const pExecFile = (cmd, args, opts) => promisify(cp.execFile)(cmd, args, opts);
 const DEFAULT_TIMEOUT = 10000;
 
+function buildRestoreScript(videoPathFile) {
+    return `#!/bin/bash
+PATH_FILE="${videoPathFile}"
+[ -f "$PATH_FILE" ] || exit 0
+WALL="$(cat "$PATH_FILE")"
+[ -f "$WALL" ] || exit 0
+pkill -f mpvpaper
+for monitor in $(hyprctl monitors -j | jq -r '.[] | .name'); do
+    mpvpaper -o "no-audio loop hwdec=auto scale=bilinear interpolation=no video-sync=display-resample panscan=1.0 video-scale-x=1.0 video-scale-y=1.0 video-align-x=0.5 video-align-y=0.5 load-scripts=no" "$monitor" "$WALL" &
+    sleep 0.1
+done
+`;
+}
+
 /**
  * Universal Cross-Platform Wallpaper Adapter
  * Supports: ArchEclipse (custom script), Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME, KDE, XFCE, Windows, macOS
@@ -37,10 +51,12 @@ async function applyWallpaperUniversal(filepath, options = {}) {
     }
 
     const restoreScript = path.join(homeDir, '.config/hypr/custom/scripts/__restore_video_wallpaper.sh');
+    const videoPathFile = path.join(homeDir, '.config/hypr/custom/scripts/__current_video_path.txt');
     if (isVideo && fs.existsSync(path.dirname(restoreScript))) {
         try {
-            const scriptContent = `#!/bin/bash\npkill -f -9 mpvpaper\nfor monitor in $(hyprctl monitors -j | jq -r '.[] | .name'); do\n    mpvpaper -o "no-audio loop hwdec=auto scale=bilinear interpolation=no video-sync=display-resample panscan=1.0 video-scale-x=1.0 video-scale-y=1.0 video-align-x=0.5 video-align-y=0.5 load-scripts=no" "$monitor" "${filepath}" &\n    sleep 0.1\ndone\n`;
-            fs.writeFileSync(restoreScript, scriptContent, 'utf-8');
+            fs.writeFileSync(videoPathFile, filepath, 'utf-8');
+            const scriptContent = buildRestoreScript(videoPathFile);
+            fs.writeFileSync(restoreScript, scriptContent, { encoding: 'utf-8', mode: 0o755 });
         } catch {}
     }
 
@@ -216,4 +232,4 @@ end run`;
     }
 }
 
-module.exports = { applyWallpaperUniversal };
+module.exports = { applyWallpaperUniversal, buildRestoreScript };
