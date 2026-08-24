@@ -1,13 +1,13 @@
 # QuickSwitcher (v1.2.0)
 
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/ArchEnjoyerakazonix/QuickSwitcher)
-[![CI](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/actions/workflows/ci.yml/badge.svg)](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/actions/workflows/ci.yml)
+[![CI](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-brightgreen.svg)]()
 [![Electron](https://img.shields.io/badge/electron-34.5.8-9cf.svg)](https://www.electronjs.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
 
-<video src="https://raw.githubusercontent.com/ArchEnjoyerakazonix/QuickSwitcher/main/assets/demo.mp4" controls autoplay loop muted width="100%"></video>
+![QuickSwitcher Demo](assets/demo.webp)
 
 Minimal, GPU-accelerated transient overlay wallpaper switcher engineered for Hyprland, Wayland, and cross-platform desktop environments (GNOME, KDE Plasma, XFCE, MATE, generic X11, Windows, and macOS).
 
