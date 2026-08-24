@@ -6,30 +6,26 @@
 [![Electron](https://img.shields.io/badge/electron-34.5.8-9cf.svg)](https://www.electronjs.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
 
-
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/9003550e-162a-4527-8e68-81b7c9a9ae81" />
 
-
-Minimal, GPU-accelerated transient overlay wallpaper switcher engineered for Hyprland, Wayland, and cross-platform desktop environments (GNOME, KDE Plasma, XFCE, MATE, Windows, and macOS).
+Minimal, GPU-accelerated transient overlay wallpaper switcher engineered for Hyprland, Wayland, and cross-platform desktop environments (GNOME, KDE Plasma, XFCE, MATE, generic X11, Windows, and macOS).
 
 ---
 
-## Features
+## Architectural Highlights
 
-- **Transient Bottom Overlay**: Lightweight transient window with single-instance lock, sub-20ms startup, and zero background resource throttling.
-- **Hardware-Accelerated Scrolling**: 144 Hz horizontal track scrolling offloaded to Chromium's GPU compositor with 0% main-thread overhead.
-- **Native Image Pipeline**: Asynchronous thumbnailing via C++ `nativeImage` pipeline (with ImageMagick and ffmpeg fallbacks), reducing VRAM usage by 98%.
-- **Non-Blocking Background Worker Queue**: Instant directory scanning while video and image thumbnails render asynchronously in a 4-worker queue (`MAX_CONCURRENT_FFMPEG = 4`).
-- **Opaque ID Architecture & TOCTOU Defense**: Filesystem paths are never exposed to renderer processes. Operations resolve strictly through SHA-256 opaque IDs verified against inode, size, and mtime.
-- **Hardened IPC Isolation**: Context isolation, sandboxed preload API, strict `senderFrame.url` validation, and path containment policies.
-- **Atomic State Persistence**: Safe temporary file serialization (`queueJsonWrite` / `updateJson`) with `0600` file modes preventing configuration corruption.
-- **Process Ownership Verification**: Robust `mpvpaper` lifecycle tracking with PID start-time and executable verification before signal dispatch.
+- **Transient Bottom Overlay**: Lightweight bottom strip with single-instance enforcement and disabled background window throttling.
+- **Compositor-Accelerated Scrolling**: Horizontal track navigation offloaded to Chromium's GPU rasterizer and compositor thread.
+- **Asynchronous Thumbnail Pipeline**: High-resolution wallpapers (4K/8K) are downsampled asynchronously to cached 800px previews via C++ decoders (`nativeImage`) with ImageMagick and ffmpeg fallbacks, preventing high-resolution image bloat in renderer memory.
+- **Non-Blocking Background Worker Queue**: Immediate filesystem directory scanning with background concurrency-limited video frame extraction (`MAX_CONCURRENT_FFMPEG = 4`) streaming live `thumb-ready` updates.
+- **Opaque ID Architecture & TOCTOU Defense**: Raw filesystem paths are isolated to the main process. Renderer IPC operates strictly over opaque SHA-256 tokens revalidated against inode, size, and mtime before execution. See [SECURITY.md](SECURITY.md).
+- **Process Ownership Verification**: Safe `mpvpaper` process lifecycle tracking using `/proc/<pid>/stat` start-time and `/proc/<pid>/exe` verification to eliminate PID recycling hazards.
 
 ---
 
 ## Desktop Environment Support Matrix
 
-QuickSwitcher automatically detects the active desktop environment and dispatches to the optimal backend:
+QuickSwitcher automatically detects the active desktop environment and dispatches to the native tool:
 
 | Environment | Static Formats | Animated / Video | Backend Integration |
 |---|:---:|:---:|---|
@@ -48,51 +44,61 @@ QuickSwitcher automatically detects the active desktop environment and dispatche
 
 | Shortcut / Input | Description |
 |---|---|
-| `Click` / `Enter` | Apply selected wallpaper and close overlay |
+| `Click` / `Enter` | Apply selected wallpaper and dismiss overlay |
 | `Right Click` | Open delete confirmation modal |
-| `h` / `l` or `Left` / `Right` | Navigate between wallpaper cards |
+| `h` / `l` or `Left` / `Right` | Navigate wallpaper cards |
 | `/` | Focus search input |
 | `Escape` | Dismiss QuickSwitcher |
 | `Mouse Wheel` | Horizontal track scrolling |
 
 ---
 
+## Requirements
+
+- **Node.js**: `>= 20.0.0` (LTS recommended)
+- **Electron**: `>= 34.0.0`
+- **Linux Tools (Optional / Recommended)**: `ffmpeg` (video previews), `imagemagick` (fast thumbnailing), `swww` or `hyprpaper` (Wayland), `mpvpaper` (video wallpapers).
+
+---
+
 ## Installation & Setup
 
-### 1. System Prerequisites
-
-Install Node.js and desktop wallpaper tools for your distribution:
+### 1. Install System Dependencies
 
 **Arch Linux**:
 ```bash
-sudo pacman -S nodejs npm electron ffmpeg mpvpaper swww hyprpaper
+sudo pacman -S nodejs npm electron ffmpeg mpvpaper swww hyprpaper imagemagick
 ```
 
 **Ubuntu / Debian**:
 ```bash
-sudo apt update && sudo apt install -y nodejs npm ffmpeg
+sudo apt update && sudo apt install -y nodejs npm ffmpeg imagemagick
 ```
 
 **Fedora**:
 ```bash
-sudo dnf install -y nodejs npm ffmpeg
+sudo dnf install -y nodejs npm ffmpeg ImageMagick
 ```
 
-### 2. Clone and Install
+### 2. Clone and Build
 
 ```bash
 git clone https://github.com/ArchEnjoyerakazonix/QuickSwitcher.git ~/.config/quickswitcher
 cd ~/.config/quickswitcher
 npm ci
+
+# Build local standalone unpacked binary (recommended for instant startup)
+npm run pack
 ```
 
 ### 3. Hyprland Integration
 
-Add the overlay toggle keybinding and window rules to `~/.config/hypr/hyprland.conf`:
+Add the overlay toggle keybinding and window rules to `~/.config/hypr/hyprland.conf`.
 
+**Using the packaged binary (Fastest cold start)**:
 ```ini
 # Toggle QuickSwitcher overlay
-bind = CTRL SUPER, W, exec, npx electron ~/.config/quickswitcher
+bind = CTRL SUPER, W, exec, ~/.config/quickswitcher/dist/linux-unpacked/quickswitcher
 
 # Floating overlay window rules
 windowrulev2 = float, title:^(QuickSwitcher)$
@@ -100,11 +106,16 @@ windowrulev2 = pin, title:^(QuickSwitcher)$
 windowrulev2 = move 0 100%-300, title:^(QuickSwitcher)$
 ```
 
+**Using development runner**:
+```ini
+bind = CTRL SUPER, W, exec, npm --prefix ~/.config/quickswitcher start
+```
+
 ---
 
 ## Offline Thumbnail Pre-Generation
 
-To pre-cache thumbnails for large wallpaper directories:
+To pre-cache thumbnails for large wallpaper directories ahead of time:
 
 ```bash
 node scripts/generate-thumbs.js
@@ -112,15 +123,15 @@ node scripts/generate-thumbs.js
 
 ---
 
-## Testing & Multi-Environment Verification
+## Testing & Verification
 
-QuickSwitcher includes an extensive test suite and containerized sandbox verification across multiple Linux distributions:
+QuickSwitcher includes unit tests, integration tests, and containerized multi-distro sandboxes:
 
 ```bash
 # Check syntax
 npm run check
 
-# Run unit and integration tests
+# Run unit and integration tests with coverage
 npm test
 
 # Run multi-environment container tests (Debian/Ubuntu, Alpine, Node 20/22)
@@ -128,10 +139,13 @@ npm run test:containers
 
 # Full verification pass
 npm run verify
-
-# Package native distribution binaries
-npm run pack
 ```
+
+---
+
+## Security Model
+
+Detailed information regarding threat modeling, context isolation, TOCTOU mitigations, and PID ownership validation is documented in [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -145,6 +159,14 @@ npm run pack
 - **Linux Cache**: `~/.cache/quickswitcher-thumbs/` (hashed preview cache).
 - **Windows Config**: `%APPDATA%\QuickSwitcher\`
 - **macOS Config**: `~/Library/Application Support/QuickSwitcher/`
+
+---
+
+## Contributing & Issues
+
+Contributions, bug reports, and suggestions are welcome!
+- **Bug Reports & Features**: Open an issue on [GitHub Issues](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/issues).
+- **Pull Requests**: Ensure all checks and tests pass with `npm run verify` before submitting.
 
 ---
 
