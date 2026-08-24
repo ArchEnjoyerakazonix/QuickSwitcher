@@ -21,7 +21,7 @@ const {
 } = require('./wallpaperInventory');
 const { isInsideRoots } = require('./pathPolicy');
 const { getThumbPath } = require('./thumbnailPolicy');
-const { createAppPaths } = require('./appPaths');
+const { createAppPaths, getDefaultWallpaperDirs } = require('./appPaths');
 
 const pExecFile = promisify(execFile);
 
@@ -77,13 +77,7 @@ async function saveCustomFolders(foldersArray) {
 }
 
 async function getWallpaperDirectories() {
-    const defaultDirs = [
-        path.join(os.homedir(), 'Pictures/wallpapers'),
-        path.join(os.homedir(), 'Pictures/Wallpapers'),
-        path.join(os.homedir(), 'Pictures/Wallpapers/Dynamic-Wallpapers'),
-        path.join(os.homedir(), 'dotfiles/wallpapers'),
-        path.join(os.homedir(), '.config/wallpapers'),
-    ];
+    const defaultDirs = getDefaultWallpaperDirs();
     const custom = await loadCustomFolders();
     const merged = [...defaultDirs, ...custom];
     const unique = new Set(merged.filter(d => typeof d === 'string' && d.length > 0));
@@ -613,12 +607,13 @@ async function installDesktopShortcut() {
         const execPath = process.execPath;
         const mainScript = path.resolve(__dirname, '../../');
         const iconPath = path.resolve(__dirname, '../../assets/icon.png');
+        const execCmd = app.isPackaged ? `"${execPath}"` : `"${execPath}" "${mainScript}"`;
 
         const desktopContent = `[Desktop Entry]
 Name=QuickSwitcher
 GenericName=Wallpaper Switcher
 Comment=Hyper-minimalist GPU-accelerated wallpaper switcher
-Exec="${execPath}" "${mainScript}"
+Exec=${execCmd}
 Icon=${iconPath}
 Terminal=false
 Type=Application

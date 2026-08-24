@@ -4,6 +4,7 @@ const fs = require('fs');
 const { promisify } = require('util');
 const { pathToFileURL } = require('url');
 const { stopOwnedMpvpaper, spawnMpvpaperMonitor, saveMpvpaperPids, terminateOwnedPids } = require('./mpvpaperManager');
+const { CURRENT_CONF, RESTORE_SCRIPT, VIDEO_PATH_FILE, SWITCHWALL_SCRIPT } = require('./appPaths');
 
 const pExecFile = (cmd, args, opts) => promisify(cp.execFile)(cmd, args, opts);
 const DEFAULT_TIMEOUT = 10000;
@@ -27,7 +28,18 @@ done
  * Supports: ArchEclipse (custom script), Hyprland, SWWW, Hyprpaper, MPVPaper, GNOME, KDE, XFCE, Windows, macOS
  */
 async function applyWallpaperUniversal(filepath, options = {}) {
-    const { setWallScript, monitors = [], ws = 1, configDir, previousPath, mediaType } = options;
+    const {
+        setWallScript,
+        monitors = [],
+        ws = 1,
+        configDir,
+        previousPath,
+        mediaType,
+        currentConf = CURRENT_CONF,
+        restoreScript = RESTORE_SCRIPT,
+        videoPathFile = VIDEO_PATH_FILE,
+        switchwallScript = SWITCHWALL_SCRIPT
+    } = options;
 
     const ext = path.extname(filepath).toLowerCase();
     const platform = process.platform;
@@ -41,18 +53,14 @@ async function applyWallpaperUniversal(filepath, options = {}) {
 
     // 1. LIFECYCLE TRANSITION
     // Sync with Hyprland wallpaper daemon current.conf & __restore_video_wallpaper.sh to prevent daemon revert on window/workspace switch
-    const homeDir = require('os').homedir();
-    const currentConf = path.join(homeDir, '.config/hypr/wallpaper-daemon/config/current.conf');
-    if (fs.existsSync(path.dirname(currentConf))) {
+    if (currentConf && fs.existsSync(path.dirname(currentConf))) {
         try {
             fs.mkdirSync(path.dirname(currentConf), { recursive: true });
             fs.writeFileSync(currentConf, filepath, 'utf-8');
         } catch {}
     }
 
-    const restoreScript = path.join(homeDir, '.config/hypr/custom/scripts/__restore_video_wallpaper.sh');
-    const videoPathFile = path.join(homeDir, '.config/hypr/custom/scripts/__current_video_path.txt');
-    if (isVideo && fs.existsSync(path.dirname(restoreScript))) {
+    if (isVideo && restoreScript && videoPathFile && fs.existsSync(path.dirname(restoreScript))) {
         try {
             fs.writeFileSync(videoPathFile, filepath, 'utf-8');
             const scriptContent = buildRestoreScript(videoPathFile);
@@ -118,60 +126,45 @@ public class Wallpaper {
 }
 '@
 Add-Type -TypeDefinition $code
-$ok = [Wallpaper]::SystemParametersInfo(0x0014, 0, $env:QS_WALLPAPER_PATH, 0x0001 -bor 0x0002)
-if (-not $ok) {
-    throw "SystemParametersInfoW returned 0"
-}
+[Wallpaper]::SystemParametersInfo(0x0014, 0, "${filepath.replace(/\\/g, '\\\\')}", 0x01 -bor 0x02)
 `;
         try {
-            await pExecFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psScript], {
-                env: { ...process.env, QS_WALLPAPER_PATH: filepath },
-                timeout: DEFAULT_TIMEOUT,
-                windowsHide: true
-            });
+            await pExecFile('powershell', ['-NoProfile', '-Command', psScript], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'Windows (SystemParametersInfo)' };
         } catch (e) {
-            return { ok: false, backend: 'powershell', error: e.message };
+            return { ok: false, backend: 'Windows', error: e.message };
         }
     }
 
     // 5. MACOS PLATFORM
     if (platform === 'darwin') {
-        const script = `
-on run argv
-  set p to POSIX file (item 1 of argv)
-  tell application "System Events"
-    repeat with d in every desktop
-      set picture of d to p
-    end repeat
-  end tell
-end run`;
+        const script = `tell application "System Events" to tell every desktop to set picture to "${filepath}"`;
         try {
-            await pExecFile('osascript', ['-e', script, filepath], { timeout: DEFAULT_TIMEOUT });
+            await pExecFile('osascript', ['-e', script], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'macOS (Finder)' };
         } catch (e) {
-            return { ok: false, backend: 'osascript', error: e.message };
+            return { ok: false, backend: 'macOS (Finder)', error: e.message };
         }
     }
 
-    // 6. LINUX DESKTOP ENVIRONMENTS (GNOME / KDE / XFCE / MATE / CINNAMON)
-    if (desktop.includes('GNOME') || desktop.includes('CINNAMON') || desktop.includes('MATE')) {
-        const safeUri = pathToFileURL(filepath).href;
-        const isMate = desktop.includes('MATE');
-        const schema = isMate ? 'org.mate.background' :
-                       desktop.includes('CINNAMON') ? 'org.cinnamon.desktop.background' :
-                       'org.gnome.desktop.background';
-        const key = isMate ? 'picture-filename' : 'picture-uri';
-        const val = isMate ? filepath : safeUri;
-
+    // 6. LINUX DESKTOP ENVIRONMENTS
+    if (desktop.includes('GNOME') || desktop.includes('CINNAMON')) {
         try {
-            await pExecFile('gsettings', ['set', schema, key, val], { timeout: DEFAULT_TIMEOUT });
-            if (desktop.includes('GNOME')) {
-                await pExecFile('gsettings', ['set', schema, 'picture-uri-dark', safeUri], { timeout: DEFAULT_TIMEOUT }).catch(() => {});
-            }
-            return { ok: true, backend: `Linux (${desktop})` };
+            const uri = pathToFileURL(filepath).href;
+            await pExecFile('gsettings', ['set', 'org.gnome.desktop.background', 'picture-uri', uri], { timeout: DEFAULT_TIMEOUT });
+            await pExecFile('gsettings', ['set', 'org.gnome.desktop.background', 'picture-uri-dark', uri], { timeout: DEFAULT_TIMEOUT });
+            return { ok: true, backend: 'Linux (GNOME)' };
         } catch (e) {
-            return { ok: false, backend: 'gsettings', error: e.message };
+            return { ok: false, backend: 'Linux (GNOME)', error: e.message };
+        }
+    }
+
+    if (desktop.includes('MATE')) {
+        try {
+            await pExecFile('gsettings', ['set', 'org.mate.background', 'picture-filename', filepath], { timeout: DEFAULT_TIMEOUT });
+            return { ok: true, backend: 'Linux (MATE)' };
+        } catch (e) {
+            return { ok: false, backend: 'Linux (MATE)', error: e.message };
         }
     }
 
@@ -180,13 +173,13 @@ end run`;
             await pExecFile('plasma-apply-wallpaperimage', [filepath], { timeout: DEFAULT_TIMEOUT });
             return { ok: true, backend: 'KDE Plasma' };
         } catch (e) {
-            console.warn('[QuickSwitcher] KDE wallpaper apply error:', e.message);
+            return { ok: false, backend: 'KDE Plasma', error: e.message };
         }
     }
 
     if (desktop.includes('XFCE')) {
         try {
-            const { stdout } = await pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: 2000 });
+            const { stdout } = await pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-l'], { timeout: DEFAULT_TIMEOUT });
             const props = stdout.split('\n').map(s => s.trim()).filter(l => l.endsWith('/last-image'));
             if (props.length === 0) throw new Error('No XFCE wallpaper properties found');
             await Promise.all(props.map(prop => pExecFile('xfconf-query', ['-c', 'xfce4-desktop', '-p', prop, '-s', filepath], { timeout: DEFAULT_TIMEOUT })));
@@ -214,8 +207,7 @@ end run`;
         }
         
         // Trigger Matugen / switchwall.sh to auto-recolor Kitty, Hyprland, Quickshell, GTK & system UI
-        const switchwallScript = path.join(homeDir, '.config/quickshell/ii/scripts/colors/switchwall.sh');
-        if (fs.existsSync(switchwallScript)) {
+        if (switchwallScript && fs.existsSync(switchwallScript)) {
             cp.execFile('bash', [switchwallScript, filepath], (err) => {
                 if (err) console.error('[QuickSwitcher] Auto-recolor switchwall error:', err.message);
             });

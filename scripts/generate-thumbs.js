@@ -5,7 +5,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
-const { CONFIG_DIR, THUMB_DIR, CUSTOM_FOLDERS_FILE } = require('../src/main/appPaths');
+const { CONFIG_DIR, THUMB_DIR, CUSTOM_FOLDERS_FILE, getDefaultWallpaperDirs } = require('../src/main/appPaths');
 const { getThumbPath } = require('../src/main/thumbnailPolicy');
 
 async function loadCustomFolders() {
@@ -26,13 +26,7 @@ async function run() {
     await fsp.mkdir(CONFIG_DIR, { recursive: true }).catch(() => {});
     await fsp.mkdir(THUMB_DIR, { recursive: true }).catch(() => {});
 
-    const defaultDirs = [
-        path.join(os.homedir(), 'Pictures/wallpapers'),
-        path.join(os.homedir(), 'Pictures/Wallpapers'),
-        path.join(os.homedir(), 'Pictures/Wallpapers/Dynamic-Wallpapers'),
-        path.join(os.homedir(), 'dotfiles/wallpapers'),
-        path.join(os.homedir(), '.config/wallpapers'),
-    ];
+    const defaultDirs = getDefaultWallpaperDirs();
     const custom = await loadCustomFolders();
     const merged = [...defaultDirs, ...custom];
     const uniqueDirs = new Set(merged.filter(d => typeof d === 'string' && d.length > 0));
