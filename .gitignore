@@ -3,4 +3,11 @@ node_modules/
 *.log
 dist/
 out/
+.env*
+repomix*
 .github/workflows/ci.yml
+*.AppImage
+*.deb
+*.rpm
+*.tar.gz
+*.zip
