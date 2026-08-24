@@ -7,7 +7,7 @@
 [![Electron](https://img.shields.io/badge/electron-34.5.8-9cf.svg)](https://www.electronjs.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
 
-<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/9003550e-162a-4527-8e68-81b7c9a9ae81" />
+<video src="https://raw.githubusercontent.com/ArchEnjoyerakazonix/QuickSwitcher/main/assets/demo.mp4" controls autoplay loop muted width="100%"></video>
 
 Minimal, GPU-accelerated transient overlay wallpaper switcher engineered for Hyprland, Wayland, and cross-platform desktop environments (GNOME, KDE Plasma, XFCE, MATE, generic X11, Windows, and macOS).
 
