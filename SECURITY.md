@@ -6,17 +6,19 @@ QuickSwitcher operates as a privileged local desktop utility interfacing with fi
 
 ## 1. Threat Model & Mitigations
 
-### Opaque ID Architecture & Path Containment
-- **Problem**: Passing arbitrary file paths across IPC from the renderer layer exposes the system to path traversal and local file inclusion (LFI) vectors if renderer context is compromised.
-- **Mitigation**: 
-  - The renderer never receives raw filesystem paths. It only receives random opaque SHA-256 identifiers (`id`).
-  - The main process maintains an isolated in-memory inventory map.
-  - All requested files must reside inside strictly validated directory roots (`isInsideRoots`), forbidding root directories (`/`, `/home`, `/etc`, `/usr`).
+### Two-Tier Path Containment (Allowlist + Guardrail Blocklist)
+- **Problem**: Passing arbitrary file paths across IPC from the renderer layer exposes the system to path traversal and local file inclusion (LFI) vectors if the renderer context is compromised.
+- **Mitigation (Tier 1 — Strict Allowlist)**: 
+  - The renderer never receives raw filesystem paths; it operates strictly on opaque SHA-256 identifiers.
+  - The core containment policy (`isInsideRoots`) is an **allowlist**. Only files that reside inside registered root directories (`~/Pictures/wallpapers`, `~/Pictures/Wallpapers`, `~/.config/wallpapers`, and explicitly user-added directories) can be indexed, read, or modified.
+  - All symlinks are canonicalized via `fs.realpath()` before evaluation; if a symlink points outside the allowlisted root hierarchy, it is rejected immediately.
+- **Mitigation (Tier 2 — Broad Root Guardrails)**:
+  - When registering custom directories via `select-folder`, overly broad system roots (`/`, `/home`, `/etc`, `/usr`, `/var`, `/tmp`, `/boot`, `/opt`, `/root`, and bare `$HOME`) are blocked from registration to prevent expansive indexing.
 
 ### TOCTOU (Time-of-Check to Time-of-Use) Defense
-- **Problem**: An attacker or external process could replace a verified wallpaper path with a malicious symlink or altered binary payload between inventory indexing and application.
+- **Problem**: An external process or attacker could replace a verified wallpaper path with a malicious symlink or altered binary payload between inventory indexing and application.
 - **Mitigation**:
-  - Before applying or deleting any wallpaper, `revalidateRecord()` performs an atomic stat check.
+  - Before applying or deleting any wallpaper, `revalidateRecord()` executes an atomic stat check.
   - Inode type, file size, and modification timestamp (`mtimeMs`) must match the indexed record. If mismatched, execution is aborted and a rescan is demanded.
 
 ### Hardened IPC Sandbox
@@ -38,5 +40,5 @@ QuickSwitcher operates as a privileged local desktop utility interfacing with fi
 ## 2. Reporting Security Vulnerabilities
 
 If you discover a security issue or vulnerability in QuickSwitcher, please report it responsibly:
-- **Private Reporting**: Open a private security advisory on GitHub or email the maintainer directly.
+- **Private Advisory**: Submit a report directly via [GitHub Private Vulnerability Reporting](https://github.com/ArchEnjoyerakazonix/QuickSwitcher/security/advisories/new).
 - Please include reproduction steps, environment details (OS, desktop environment, Node.js version), and a proof of concept if available.

@@ -481,7 +481,7 @@ ipcMain.handle('apply-wallpaper', async (event, payload) => {
 });
 
 const FORBIDDEN_ROOTS = new Set([
-    '/', '/home', '/etc', '/usr', '/var', '/boot',
+    '/', '/home', '/etc', '/usr', '/var', '/boot', '/tmp', '/opt', '/root',
     os.homedir(), path.parse(os.homedir()).root
 ].map(p => path.resolve(p)));
 
