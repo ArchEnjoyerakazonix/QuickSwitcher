@@ -91,13 +91,13 @@ npm ci
 npm run pack
 ```
 
-### 3. Hyprland Integration
+### 3. Integration & Launching
 
-Add the overlay toggle keybinding and window rules to `~/.config/hypr/hyprland.conf`.
+#### Hyprland Setup
+Add the overlay toggle keybinding and floating window rules to `~/.config/hypr/hyprland.conf`:
 
-**Using the packaged binary (Fastest cold start)**:
 ```ini
-# Toggle QuickSwitcher overlay
+# Toggle QuickSwitcher overlay (using packaged binary for instant startup)
 bind = CTRL SUPER, W, exec, ~/.config/quickswitcher/dist/linux-unpacked/quickswitcher
 
 # Floating overlay window rules
@@ -106,10 +106,13 @@ windowrulev2 = pin, title:^(QuickSwitcher)$
 windowrulev2 = move 0 100%-300, title:^(QuickSwitcher)$
 ```
 
-**Using development runner**:
+*Development runner fallback:*
 ```ini
 bind = CTRL SUPER, W, exec, npm --prefix ~/.config/quickswitcher start
 ```
+
+#### Application Menus & Other Desktop Environments (GNOME, KDE, XFCE, Sway)
+On first launch, QuickSwitcher automatically creates and registers `quickswitcher.desktop` in `~/.local/share/applications/`. It becomes instantly searchable and launchable via system app menus and launchers (**Rofi**, **Wofi**, **KRunner**, **GNOME Dash**, **XFCE App Finder**).
 
 ---
 
