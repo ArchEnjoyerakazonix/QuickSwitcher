@@ -19,11 +19,18 @@
   },
   "keywords": [
     "hyprland",
-    "arch-linux",
-    "wallpaper-picker",
+    "wayland",
+    "wallpaper",
+    "wallpaper-switcher",
+    "swww",
+    "hyprpaper",
+    "mpvpaper",
+    "desktop-customization",
+    "rice",
+    "dotfiles",
     "electron",
-    "quickswitcher",
-    "linux-desktop"
+    "linux",
+    "quickswitcher"
   ],
   "author": "ArchEnjoyerakazonix",
   "license": "MIT",
